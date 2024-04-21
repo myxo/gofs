@@ -298,7 +298,12 @@ func TestFS(t *testing.T) {
 				errFake := fs.Mkdir(filepath.Join("/", p), 0777)
 				checkSyncError(t, errOs, errFake)
 			},
-			//			"FS_MkdirAll":   func(t *rapid.T) {},
+			"FS_MkdirAll": func(t *rapid.T) {
+				p := rapid.SampledFrom(possibleDirs).Draw(t, "dir")
+				errOs := os.MkdirAll(filepath.Join(dir, p), 0777)
+				errFake := fs.MkdirAll(filepath.Join("/", p), 0777)
+				checkSyncError(t, errOs, errFake)
+			},
 			//			"FS_MkdirTemp":  func(t *rapid.T) {},
 			"FS_ReadFile": func(t *rapid.T) {
 				p := rapid.SampledFrom(possibleFilenames).Draw(t, "file")
@@ -307,9 +312,20 @@ func TestFS(t *testing.T) {
 				checkSyncError(t, errOs, errFake)
 				require.Equal(t, contOs, contFake)
 			},
-			//			"FS_Readlink":   func(t *rapid.T) {},
-			//			"FS_Remove":     func(t *rapid.T) {},
-			//			"FS_RemoveAll":  func(t *rapid.T) {},
+			"FS_Remove": func(t *rapid.T) {
+				// TODO: remove also dirs and subdirs
+				p := rapid.SampledFrom(possibleFilenames).Draw(t, "dir")
+				errOs := os.Remove(filepath.Join(dir, p))
+				errFake := fs.Remove(filepath.Join("/", p))
+				checkSyncError(t, errOs, errFake)
+			},
+			"FS_RemoveAll": func(t *rapid.T) {
+				// TODO: remove also dirs and subdirs
+				p := rapid.SampledFrom(possibleFilenames).Draw(t, "dir")
+				errOs := os.RemoveAll(filepath.Join(dir, p))
+				errFake := fs.RemoveAll(filepath.Join("/", p))
+				checkSyncError(t, errOs, errFake)
+			},
 			"FS_Rename": func(t *rapid.T) {
 				oldname := rapid.SampledFrom(possibleFilenames).Draw(t, "file")
 				newname := rapid.SampledFrom(possibleFilenames).Draw(t, "file")

@@ -11,3 +11,5 @@ TODO:
 - [ ] Document what fileMode are supported
 - [ ] O_APPEND
 - [ ] Fallocate?
+- [ ] copy paste docs from orig functions
+- [ ] subdirs in tests

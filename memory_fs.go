@@ -124,7 +124,29 @@ func (f *FakeFS) Mkdir(name string, perm os.FileMode) error {
 	return nil
 }
 
-func (f *FakeFS) MkdirAll(path string, perm os.FileMode) error  { panic("TODO") }
+func (f *FakeFS) MkdirAll(path string, perm os.FileMode) error {
+	parentPath := filepath.Dir(path)
+	parent, parentExist := f.inodes[parentPath]
+	if !parentExist {
+		f.MkdirAll(parentPath, perm)
+	} else if !parent.isDirectory {
+		return fmt.Errorf("path %q exist, but not a directory", parentPath)
+	}
+
+	if _, exist := f.inodes[path]; exist {
+		return nil
+	}
+
+	inode := &mockData{
+		realName:    path,
+		isDirectory: true,
+		perm:        perm,
+	}
+	f.inodes[path] = inode
+	parent.dirContent = append(parent.dirContent, inode)
+	return nil
+}
+
 func (f *FakeFS) MkdirTemp(dir, pattern string) (string, error) { panic("TODO") }
 
 func (f *FakeFS) ReadFile(name string) ([]byte, error) {
@@ -142,8 +164,35 @@ func (f *FakeFS) ReadDir(name string) ([]os.DirEntry, error) {
 }
 
 func (f *FakeFS) Readlink(name string) (string, error) { panic("TODO") }
-func (f *FakeFS) Remove(name string) error             { panic("TODO") }
-func (f *FakeFS) RemoveAll(path string) error          { panic("TODO") }
+func (f *FakeFS) Remove(name string) error {
+	inode, ok := f.inodes[name]
+	if !ok {
+		return fmt.Errorf("not exist")
+	}
+	if inode.isDirectory {
+		if len(inode.dirContent) != 0 {
+			return fmt.Errorf("directory is not empty")
+		}
+	}
+	delete(f.inodes, name)
+	return nil
+}
+
+func (f *FakeFS) RemoveAll(path string) error {
+	inode, ok := f.inodes[path]
+	if !ok {
+		return nil
+	}
+	if inode.isDirectory {
+		for _, dinode := range inode.dirContent {
+			if err := f.RemoveAll(dinode.realName); err != nil {
+				return err
+			}
+		}
+	}
+	delete(f.inodes, path)
+	return nil
+}
 
 func (f *FakeFS) Rename(oldpath, newpath string) error {
 	inode, ok := f.inodes[oldpath]
@@ -230,7 +279,7 @@ func (f *FakeFS) CorruptFile(path string, offset int64) error {
 func (f *FakeFS) CorruptDirtyPages(seedRand *rand.Rand) {
 	for _, data := range f.inodes {
 		for _, dirtyInterval := range data.dyrtyPages {
-			flipByte := seedRand.Int63n(dirtyInterval.to - dirtyInterval.from) + dirtyInterval.from
+			flipByte := seedRand.Int63n(dirtyInterval.to-dirtyInterval.from) + dirtyInterval.from
 			if flipByte < int64(len(data.buff)) { // TODO: do I need this if?
 				data.buff[flipByte]++
 			}
