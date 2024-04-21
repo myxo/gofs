@@ -3,6 +3,7 @@ package gofs
 import (
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"path/filepath"
 )
@@ -210,4 +211,29 @@ func (f *FakeFS) Stat(name string) (os.FileInfo, error) {
 	// TODO: check read persmissions?
 	info := NewInfoDataFromNode(inode, inode.realName)
 	return info, nil
+}
+
+// This function will probably changed by v1.0
+func (f *FakeFS) CorruptFile(path string, offset int64) error {
+	fp, ok := f.inodes[path]
+	if !ok {
+		return fmt.Errorf("cannot find file")
+	}
+	if offset < 0 || offset >= fp.Size() {
+		return fmt.Errorf("offset is out of file")
+	}
+	fp.buff[offset]++
+	return nil
+}
+
+// This function will probably changed by v1.0
+func (f *FakeFS) CorruptDirtyPages(seedRand *rand.Rand) {
+	for _, data := range f.inodes {
+		for _, dirtyInterval := range data.dyrtyPages {
+			flipByte := seedRand.Int63n(dirtyInterval.to - dirtyInterval.from) + dirtyInterval.from
+			if flipByte < int64(len(data.buff)) { // TODO: do I need this if?
+				data.buff[flipByte]++
+			}
+		}
+	}
 }
