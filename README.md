@@ -10,3 +10,4 @@ TODO:
 - [ ] Make count in test to see how much function envocation we have
 - [ ] Document what fileMode are supported
 - [ ] O_APPEND
+- [ ] Fallocate?

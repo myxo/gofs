@@ -212,11 +212,7 @@ func TestFS(t *testing.T) {
 				fiFake, errFake := fpFake.Stat()
 				checkSyncError(t, errOs, errFake)
 				if fiOs != nil {
-					require.Equal(t, fiOs.Name(), fiFake.Name())
-					require.Equal(t, fiOs.IsDir(), fiFake.IsDir())
-					require.Equal(t, fiOs.Size(), fiFake.Size())
-					// we do not compare mode, since it depends on parent fs directory, so hard to check in property test
-					// We do not compare time, since it's hard to mock, and not really relevant
+					CompareFileInfo(t, fiOs, fiFake)
 				}
 			},
 			"Sync": func(t *rapid.T) {
@@ -297,7 +293,7 @@ func TestFS(t *testing.T) {
 			},
 			//			"FS_Chown":      func(t *rapid.T) {},
 			"FS_Mkdir": func(t *rapid.T) {
-				p := rapid.SampledFrom(possibleDirs).Draw(t, "dir to create")
+				p := rapid.SampledFrom(possibleDirs).Draw(t, "dir")
 				errOs := os.Mkdir(filepath.Join(dir, p), 0777)
 				errFake := fs.Mkdir(filepath.Join("/", p), 0777)
 				checkSyncError(t, errOs, errFake)
@@ -305,7 +301,7 @@ func TestFS(t *testing.T) {
 			//			"FS_MkdirAll":   func(t *rapid.T) {},
 			//			"FS_MkdirTemp":  func(t *rapid.T) {},
 			"FS_ReadFile": func(t *rapid.T) {
-				p := rapid.SampledFrom(possibleFilenames).Draw(t, "file to read")
+				p := rapid.SampledFrom(possibleFilenames).Draw(t, "file")
 				contOs, errOs := os.ReadFile(filepath.Join(dir, p))
 				contFake, errFake := fs.ReadFile(filepath.Join("/", p))
 				checkSyncError(t, errOs, errFake)
@@ -315,8 +311,8 @@ func TestFS(t *testing.T) {
 			//			"FS_Remove":     func(t *rapid.T) {},
 			//			"FS_RemoveAll":  func(t *rapid.T) {},
 			"FS_Rename": func(t *rapid.T) {
-				oldname := rapid.SampledFrom(possibleFilenames).Draw(t, "file to write")
-				newname := rapid.SampledFrom(possibleFilenames).Draw(t, "file to write")
+				oldname := rapid.SampledFrom(possibleFilenames).Draw(t, "file")
+				newname := rapid.SampledFrom(possibleFilenames).Draw(t, "file")
 
 				oldOsPath := filepath.Join(dir, oldname)
 				newOsPath := filepath.Join(dir, newname)
@@ -328,14 +324,14 @@ func TestFS(t *testing.T) {
 				checkSyncError(t, errOs, errFake)
 			},
 			"FS_Truncate": func(t *rapid.T) {
-				p := rapid.SampledFrom(possibleFilenames).Draw(t, "file to write")
+				p := rapid.SampledFrom(possibleFilenames).Draw(t, "file")
 				n := rapid.Int64Range(0, 1024).Draw(t, "truncate size")
 				errOs := os.Truncate(filepath.Join(dir, p), n)
 				errFake := fs.Truncate(filepath.Join("/", p), n)
 				checkSyncError(t, errOs, errFake)
 			},
 			"FS_WriteFile": func(t *rapid.T) {
-				p := rapid.SampledFrom(possibleFilenames).Draw(t, "file to write")
+				p := rapid.SampledFrom(possibleFilenames).Draw(t, "file")
 				n := rapid.IntRange(0, 1024).Draw(t, "write size")
 				buff := make([]byte, n)
 				rand.Read(buff)
@@ -343,8 +339,25 @@ func TestFS(t *testing.T) {
 				errFake := fs.WriteFile(filepath.Join("/", p), buff, 0777)
 				checkSyncError(t, errOs, errFake)
 			},
+			"FS_Stat": func(t *rapid.T) {
+				p := rapid.SampledFrom(possibleFilenames).Draw(t, "file")
+				fiOs, errOs := os.Stat(filepath.Join(dir, p))
+				fiFake, errFake := fs.Stat(filepath.Join("/", p))
+				checkSyncError(t, errOs, errFake)
+				if fiOs != nil {
+					CompareFileInfo(t, fiOs, fiFake)
+				}
+			},
 		})
 	})
+}
+
+func CompareFileInfo(t *rapid.T, fiOs os.FileInfo, fiFake os.FileInfo) {
+	require.Equal(t, fiOs.Name(), fiFake.Name())
+	require.Equal(t, fiOs.IsDir(), fiFake.IsDir())
+	require.Equal(t, fiOs.Size(), fiFake.Size())
+	// we do not compare mode, since it depends on parent fs directory, so hard to check in property test
+	// We do not compare time, since it's hard to mock, and not really relevant
 }
 
 func TestTmp(t *testing.T) {
@@ -377,6 +390,13 @@ func TestTmp(t *testing.T) {
 		fileCount++
 	}
 	createFiles()
+
+	fmt.Println("STAT")
+	_, err1 := os.Stat(filepath.Join(dir, "/a/file.test"))
+	_, err2 := fs.Stat(filepath.Join("/", "/a/file.test"))
+	fmt.Println(err1)
+	fmt.Println(err2)
+	panic("aaa")
 
 	p := "/a/file.test"
 	fpOs, errOs := os.Open(filepath.Join(dir, p))

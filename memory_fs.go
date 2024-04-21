@@ -201,3 +201,13 @@ func (f *FakeFS) Release() {
 	}
 	clear(f.inodes)
 }
+
+func (f *FakeFS) Stat(name string) (os.FileInfo, error) {
+	inode, ok := f.inodes[name]
+	if !ok {
+		return nil, fmt.Errorf("file not exist")
+	}
+	// TODO: check read persmissions?
+	info := NewInfoDataFromNode(inode, inode.realName)
+	return info, nil
+}

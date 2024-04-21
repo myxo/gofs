@@ -25,6 +25,7 @@ type FS interface {
 	Rename(oldpath, newpath string) error
 	Truncate(name string, size int64) error
 	WriteFile(name string, data []byte, perm os.FileMode) error
+	Stat(name string) (os.FileInfo, error)
 }
 
 type File struct {
@@ -165,6 +166,10 @@ func (f *File) WriteString(s string) (n int, err error) {
 }
 func (f *File) WriteTo(w io.Writer) (n int64, err error) { panic("todo") }
 
+func (f *File) IsFake() bool {
+	return f.osFile == nil
+}
+
 //func (f *File) SetDeadline(t time.Time) error{ panic("todo") }
 //func (f *File) SetReadDeadline(t time.Time) error{ panic("todo") }
 //func (f *File) SetWriteDeadline(t time.Time) error{ panic("todo") }
@@ -247,4 +252,8 @@ func (OsFs) WriteFile(name string, data []byte, perm os.FileMode) error {
 
 func (OsFs) ReadDir(name string) ([]os.DirEntry, error) {
 	return os.ReadDir(name)
+}
+
+func (OsFs) Stat(name string) (os.FileInfo, error) {
+	return os.Stat(name)
 }
