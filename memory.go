@@ -73,7 +73,7 @@ func (f *FakeFile) Chdir() error { panic("todo") }
 
 func (f *FakeFile) Chmod(mode os.FileMode) error {
 	if f.data == nil {
-		return fmt.Errorf("file already closed")
+		return os.ErrInvalid
 	}
 	f.data.perm = mode & fs.ModePerm
 	return nil
@@ -83,7 +83,7 @@ func (f *FakeFile) Chown(uid, gid int) error { panic("todo") }
 
 func (f *FakeFile) Close() error {
 	if f.data == nil {
-		return fmt.Errorf("file already closed")
+		return os.ErrInvalid
 	}
 	if err := f.Sync(); err != nil {
 		// TODO: should I release memory here?
@@ -126,7 +126,7 @@ func (f *FakeFile) ReadAt(b []byte, off int64) (n int, err error) {
 
 func (f *FakeFile) pread(b []byte, off int64) (n int, err error) {
 	if f.data == nil {
-		return 0, fmt.Errorf("file already closed")
+		return 0, os.ErrInvalid
 	}
 	if off < 0 {
 		return 0, fmt.Errorf("negative offset")
@@ -149,7 +149,7 @@ func (f *FakeFile) pread(b []byte, off int64) (n int, err error) {
 
 func (f *FakeFile) ReadDir(n int) ([]os.DirEntry, error) {
 	if f.data == nil {
-		return nil, fmt.Errorf("file already closed")
+		return nil, os.ErrInvalid
 	}
 	if !f.data.isDirectory {
 		return nil, fmt.Errorf("file %q not a directory", f.name)
@@ -174,7 +174,7 @@ func (f *FakeFile) ReadDir(n int) ([]os.DirEntry, error) {
 
 func (f *FakeFile) Readdir(n int) ([]os.FileInfo, error) {
 	if f.data == nil {
-		return nil, fmt.Errorf("file already closed")
+		return nil, os.ErrInvalid
 	}
 	if !f.data.isDirectory {
 		return nil, fmt.Errorf("file %q not a directory", f.data.realName)
@@ -231,7 +231,7 @@ type fileWithoutReadFrom struct {
 
 func (f *FakeFile) Seek(offset int64, whence int) (ret int64, err error) {
 	if f.data == nil {
-		return 0, fmt.Errorf("file already closed")
+		return 0, os.ErrInvalid
 	}
 	newOffset := int64(0)
 	start := int64(0)
@@ -253,7 +253,7 @@ func (f *FakeFile) Seek(offset int64, whence int) (ret int64, err error) {
 
 func (f *FakeFile) Stat() (os.FileInfo, error) {
 	if f.data == nil {
-		return nil, fmt.Errorf("file already closed")
+		return nil, os.ErrInvalid
 	}
 	// TODO: check read persmissions?
 	info := NewInfoDataFromNode(f.data, f.name)
@@ -262,7 +262,7 @@ func (f *FakeFile) Stat() (os.FileInfo, error) {
 
 func (f *FakeFile) Sync() error {
 	if f.data == nil {
-		return fmt.Errorf("file already closed")
+		return os.ErrInvalid
 	}
 	clear(f.data.dyrtyPages)
 	return nil
@@ -270,7 +270,7 @@ func (f *FakeFile) Sync() error {
 
 func (f *FakeFile) Truncate(size int64) error {
 	if f.data == nil {
-		return fmt.Errorf("file already closed")
+		return os.ErrInvalid
 	}
 	if size < 0 {
 		return fmt.Errorf("negative truncate size")
@@ -285,7 +285,7 @@ func (f *FakeFile) Truncate(size int64) error {
 
 func (f *FakeFile) Write(b []byte) (n int, err error) {
 	if f.data == nil {
-		return 0, fmt.Errorf("file already closed")
+		return 0, os.ErrInvalid
 	}
 	writePos := f.cursor
 	if isAppend(f.flag) {
@@ -321,7 +321,7 @@ func (f *FakeFile) WriteAt(b []byte, off int64) (n int, err error) {
 
 func (f *FakeFile) pwrite(b []byte, off int64) (n int, err error) {
 	if f.data == nil {
-		return 0, fmt.Errorf("file already closed")
+		return 0, os.ErrInvalid
 	}
 	if off < 0 {
 		return 0, fmt.Errorf("negative offset")

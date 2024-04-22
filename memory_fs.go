@@ -78,7 +78,7 @@ func (f *FakeFS) OpenFile(name string, flag int, perm os.FileMode) (*File, error
 			return nil, err
 		}
 		if isCreate(flag) && isExclusive(flag) {
-			return nil, fmt.Errorf("file already exist")
+			return nil, os.ErrExist
 		}
 		if isTruncate(flag) {
 			if !inode.hasWritePerm() {
@@ -111,7 +111,7 @@ func (f *FakeFS) Mkdir(name string, perm os.FileMode) error {
 	}
 
 	if _, exist := f.inodes[name]; exist {
-		return fmt.Errorf("already exist")
+		return os.ErrExist
 	}
 
 	inode := &mockData{
@@ -167,7 +167,7 @@ func (f *FakeFS) Readlink(name string) (string, error) { panic("TODO") }
 func (f *FakeFS) Remove(name string) error {
 	inode, ok := f.inodes[name]
 	if !ok {
-		return fmt.Errorf("not exist")
+		return os.ErrNotExist
 	}
 	if inode.isDirectory {
 		if len(inode.dirContent) != 0 {
@@ -197,7 +197,7 @@ func (f *FakeFS) RemoveAll(path string) error {
 func (f *FakeFS) Rename(oldpath, newpath string) error {
 	inode, ok := f.inodes[oldpath]
 	if !ok {
-		return fmt.Errorf("file not exist (%s)", oldpath)
+		return fmt.Errorf("%w (%s)", os.ErrNotExist, oldpath)
 	}
 	dir := filepath.Dir(newpath)
 	dirNode, ok := f.inodes[dir]
@@ -218,7 +218,7 @@ func (f *FakeFS) Rename(oldpath, newpath string) error {
 func (f *FakeFS) Truncate(name string, size int64) error {
 	inode, ok := f.inodes[name]
 	if !ok {
-		return fmt.Errorf("file not exist")
+		return os.ErrNotExist
 	}
 	if !inode.hasWritePerm() {
 		return fmt.Errorf("file does not have write perm")
@@ -255,7 +255,7 @@ func (f *FakeFS) Release() {
 func (f *FakeFS) Stat(name string) (os.FileInfo, error) {
 	inode, ok := f.inodes[name]
 	if !ok {
-		return nil, fmt.Errorf("file not exist")
+		return nil, os.ErrNotExist
 	}
 	// TODO: check read persmissions?
 	info := NewInfoDataFromNode(inode, inode.realName)
@@ -266,7 +266,7 @@ func (f *FakeFS) Stat(name string) (os.FileInfo, error) {
 func (f *FakeFS) CorruptFile(path string, offset int64) error {
 	fp, ok := f.inodes[path]
 	if !ok {
-		return fmt.Errorf("cannot find file")
+		return os.ErrNotExist
 	}
 	if offset < 0 || offset >= fp.Size() {
 		return fmt.Errorf("offset is out of file")
