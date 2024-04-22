@@ -15,3 +15,4 @@ TODO:
 - [ ] subdirs in tests
 - [ ] CI with test and fmtcheck
 - [ ] Use more stdlib errors (how to test this?)
+- [ ] Test relative paths

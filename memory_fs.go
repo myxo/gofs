@@ -10,6 +10,7 @@ import (
 
 type FakeFS struct {
 	inodes map[string]*mockData
+	workDir   string
 }
 
 var _ FS = &FakeFS{}
@@ -19,6 +20,7 @@ const rootDir = "/"
 func NewMemoryFs() *FakeFS {
 	fs := &FakeFS{
 		inodes: map[string]*mockData{},
+		workDir:   rootDir,
 	}
 	fs.inodes[rootDir] = &mockData{
 		realName:    rootDir,
@@ -52,6 +54,9 @@ func checkOpenPerm(flag int, inode *mockData) error {
 
 func (f *FakeFS) OpenFile(name string, flag int, perm os.FileMode) (*File, error) {
 	dirPath := filepath.Dir(name)
+	if dirPath == "" {
+		dirPath = f.workDir
+	}
 	dir, dirExist := f.inodes[dirPath]
 	if !dirExist || !dir.isDirectory {
 		return nil, fmt.Errorf("dir not exist")
