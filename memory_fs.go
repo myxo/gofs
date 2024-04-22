@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"sort"
 )
 
 type FakeFS struct {
@@ -165,7 +166,15 @@ func (f *FakeFS) ReadFile(name string) ([]byte, error) {
 }
 
 func (f *FakeFS) ReadDir(name string) ([]os.DirEntry, error) {
-	panic("todo")
+	fp, err := f.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer fp.Close()
+
+	dirs, err := fp.ReadDir(-1)
+	sort.Slice(dirs, func(i, j int) bool { return dirs[i].Name() < dirs[j].Name() })
+	return dirs, err
 }
 
 func (f *FakeFS) Readlink(name string) (string, error) { panic("TODO") }
