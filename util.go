@@ -6,9 +6,6 @@ func resizeSlice(s []byte, size int) []byte {
 	if size < 0 {
 		panic("negative size")
 	}
-	if size > 1024*1024 {
-		panic(size)
-	}
 	if cap(s) < size {
 		s = append(s[:cap(s)], make([]byte, size-cap(s))...)
 	} else {
