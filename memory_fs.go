@@ -132,6 +132,9 @@ func (f *FakeFS) Mkdir(name string, perm os.FileMode) error {
 
 func (f *FakeFS) MkdirAll(path string, perm os.FileMode) error {
 	parentPath := filepath.Dir(path)
+	if parentPath == "." {
+		parentPath = f.workDir
+	}
 	parent, parentExist := f.inodes[parentPath]
 	if !parentExist {
 		f.MkdirAll(parentPath, perm)

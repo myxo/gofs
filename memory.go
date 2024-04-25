@@ -369,7 +369,6 @@ func NewInfoDataFromNode(inode *mockData, name string) *infoData {
 	info.size = inode.Size()
 	info.mode = inode.perm
 	info.isDir = inode.isDirectory
-	// info.modTime = // TODO
 	return &info
 }
 
@@ -386,7 +385,8 @@ func (m *infoData) Mode() os.FileMode {
 }
 
 func (m *infoData) ModTime() time.Time {
-	panic("todo")
+	// TODO: make possibility to change modTime for test (e.g. via special function)
+	return m.modTime
 }
 
 func (m *infoData) IsDir() bool {
