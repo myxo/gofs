@@ -3,6 +3,7 @@ package gofs
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -106,7 +107,16 @@ func (f *FakeFS) OpenFile(name string, flag int, perm os.FileMode) (*File, error
 }
 
 func (f *FakeFS) Chdir(dir string) error                    { panic("TODO") }
-func (f *FakeFS) Chmod(name string, mode os.FileMode) error { panic("TODO") }
+
+func (f *FakeFS) Chmod(name string, mode os.FileMode) error {
+	inode, ok := f.inodes[name]
+	if !ok {
+		return os.ErrNotExist
+	}
+	inode.perm = mode & fs.ModePerm
+	return nil
+}
+
 func (f *FakeFS) Chown(name string, uid, gid int) error     { panic("TODO") }
 
 func (f *FakeFS) Mkdir(name string, perm os.FileMode) error {

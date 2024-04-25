@@ -280,16 +280,11 @@ func TestFS(t *testing.T) {
 			//			"FS_Chdir":      func(t *rapid.T) {},
 			"FS_Chmod": func(t *rapid.T) {
 				p := rapid.SampledFrom(possibleFilenames).Draw(t, "file to create")
-				fpOs, errOs := os.Open(filepath.Join(dir, p))
-				fpFake, errFake := fs.Open(filepath.Join("/", p))
+				possibleModes := []os.FileMode{0666, 0222, 0444} // rw, w-only, r-only
+				mode := rapid.SampledFrom(possibleModes).Draw(t, "file mode")
+				errOs := os.Chmod(filepath.Join(dir, p), mode)
+				errFake := fs.Chmod(filepath.Join("/", p), mode)
 				checkSyncError(t, errOs, errFake)
-				if errOs == nil {
-					possibleModes := []os.FileMode{0666, 0222, 0444} // rw, w-only, r-only
-					mode := rapid.SampledFrom(possibleModes).Draw(t, "file mode")
-					errOs := fpOs.Chmod(mode)
-					errFake := fpFake.Chmod(mode)
-					checkSyncError(t, errOs, errFake)
-				}
 			},
 			//			"FS_Chown":      func(t *rapid.T) {},
 			"FS_Mkdir": func(t *rapid.T) {
