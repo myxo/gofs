@@ -15,6 +15,19 @@ import (
 	"pgregory.net/rapid"
 )
 
+type TestingT interface {
+	Fatalf(format string, a ...any)
+	Helper()
+}
+
+func NoError(t TestingT, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("Unexpected error: %+v", err)
+	}
+}
+
+
 func checkSyncError(t *rapid.T, errOs error, errFake error) {
 	t.Helper()
 	if (errOs != nil) != (errFake != nil) {
@@ -50,13 +63,13 @@ func TestFS(t *testing.T) {
 			_ = os.RemoveAll(filepath.Join(dir, "foo"))
 			fs.Release()
 		}()
-		require.NoError(t, os.MkdirAll(filepath.Join(dir, "foo/a"), 0777))
-		require.NoError(t, fs.MkdirAll("/foo/a", 0777))
+		NoError(t, os.MkdirAll(filepath.Join(dir, "foo/a"), 0777))
+		NoError(t, fs.MkdirAll("/foo/a", 0777))
 		createFiles := func() {
 			fpOs, err := os.Create(filepath.Join(dir, possibleFilenames[0]))
-			require.NoError(t, err)
+			NoError(t, err)
 			fpFake, err := fs.Create(filepath.Join("/", possibleFilenames[0]))
-			require.NoError(t, err)
+			NoError(t, err)
 
 			osFiles = append(osFiles, NewFromOs(fpOs))
 			fakeFiles = append(fakeFiles, fpFake)
@@ -377,98 +390,3 @@ func CompareDirEntries(t *rapid.T, diOs []os.DirEntry, diFake []os.DirEntry) {
 	}
 }
 
-func TestTmp(t *testing.T) {
-	dir := t.TempDir()
-	fs := NewMemoryFs()
-	var osFiles []*File
-	var fakeFiles []*File
-	fileCount := 0
-
-	defer func() {
-		for i := range osFiles {
-			osFiles[i].Close()
-		}
-		os.RemoveAll(filepath.Join(dir, "a"))
-		os.RemoveAll(filepath.Join(dir, "b"))
-		fs.Release()
-	}()
-	err := fs.Mkdir("/a", 0777)
-	require.NoError(t, err)
-	err = os.MkdirAll(filepath.Join(dir, "a"), 0777)
-	require.NoError(t, err)
-	createFiles := func() {
-		fpOs, err := os.Create(filepath.Join(dir, "/a/file.test"))
-		require.NoError(t, err)
-		fpFake, err := fs.Create(filepath.Join("/", "/a/file.test"))
-		require.NoError(t, err)
-
-		osFiles = append(osFiles, NewFromOs(fpOs))
-		fakeFiles = append(fakeFiles, fpFake)
-		fileCount++
-	}
-	createFiles()
-
-	fmt.Println("STAT")
-	_, err1 := os.Stat(filepath.Join(dir, "/a/file.test"))
-	_, err2 := fs.Stat(filepath.Join("/", "/a/file.test"))
-	fmt.Println(err1)
-	fmt.Println(err2)
-	panic("aaa")
-
-	p := "/a/file.test"
-	fpOs, errOs := os.Open(filepath.Join(dir, p))
-	fpFake, errFake := fs.Open(filepath.Join("/", p))
-	fmt.Printf("oserr:%q, fakeErr:%q\n", errOs, errFake)
-
-	fmt.Println("chmod")
-	mode := os.FileMode(0222)
-	errOs = fpOs.Chmod(mode)
-	errFake = fpFake.Chmod(mode)
-	fmt.Printf("oserr:%q, fakeErr:%q\n", errOs, errFake)
-
-	fmt.Println("writeat")
-	offset := int64(0)
-	n := 1
-	buff := make([]byte, n)
-	rand.Read(buff)
-	nOs, errOs := fpOs.WriteAt(buff, offset)
-	nFake, errFake := fpFake.WriteAt(buff, offset)
-	fmt.Printf("oserr:%q, fakeErr:%q\n", errOs, errFake)
-
-	fmt.Println("FS_create")
-	fpOs, errOs = os.Create(filepath.Join(dir, p))
-	fpFake, errFake = fs.Create(filepath.Join("/", p))
-	fmt.Printf("oserr:%q, fakeErr:%q\n", errOs, errFake)
-
-	n = 1
-	buff = make([]byte, n)
-	rand.Read(buff)
-	nOs, errOs = fpOs.Write(nil)
-	nFake, errFake = fpFake.Write(nil)
-	fmt.Printf("oserr:%q, fakeErr:%q\n", errOs, errFake)
-	if nOs != nFake {
-		t.Fatalf("os impl return %d, we %d", nOs, nFake)
-	}
-}
-
-func TestTmp2(t *testing.T) {
-	dir := t.TempDir()
-	//dir := "/Users/myxo/tmp"
-	path := filepath.Join(dir, "test2")
-	fp, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0444)
-	fmt.Println("open", err)
-	buff := []byte("hello")
-	_, err = fp.Read(buff)
-	fmt.Println("read", err)
-	_, err = fp.WriteAt(buff, 0)
-	fmt.Println("write", err)
-	n, err := fp.ReadAt(buff, 0)
-	fmt.Println("read", n, err, buff[:n])
-	fmt.Println("close")
-	fp.Close()
-	fp, err = os.OpenFile(path, os.O_RDONLY, 0222)
-	fmt.Println("open", err)
-	n, err = fp.ReadAt(buff, 0)
-	fmt.Println("read", n, err, buff[:n])
-
-}
