@@ -28,6 +28,7 @@ func NewMemoryFs() *FakeFS {
 		realName:    rootDir,
 		isDirectory: true,
 		perm:        0666,
+		fs:          fs,
 	}
 	return fs
 }
@@ -73,13 +74,14 @@ func (f *FakeFS) OpenFile(name string, flag int, perm os.FileMode) (*File, error
 		inode.reset()
 		inode.realName = name
 		inode.perm = perm
+		inode.fs = f
+		inode.parent = dir
 		if !isCreate(flag) { // read and write allowed with any perm if you just created the file
 			if err := checkOpenPerm(flag, inode); err != nil {
 				return nil, MakeWrappedError("OpenFile", name, err, "")
 			}
 		}
 		f.inodes[name] = inode
-		dir.dirContent = append(dir.dirContent, inode)
 	} else {
 		if err := checkOpenPerm(flag, inode); err != nil {
 			return nil, MakeWrappedError("OpenFile", name, err, "")
@@ -101,7 +103,6 @@ func (f *FakeFS) OpenFile(name string, flag int, perm os.FileMode) (*File, error
 			name: name,
 			data: inode,
 			flag: flag,
-			fs:   f,
 		},
 	}, nil
 }
@@ -134,9 +135,10 @@ func (f *FakeFS) Mkdir(name string, perm os.FileMode) error {
 		realName:    name,
 		isDirectory: true,
 		perm:        perm,
+		fs:          f,
+		parent:      parent,
 	}
 	f.inodes[name] = inode
-	parent.dirContent = append(parent.dirContent, inode)
 	return nil
 }
 
@@ -167,9 +169,10 @@ func (f *FakeFS) MkdirAll(path string, perm os.FileMode) error {
 		realName:    path,
 		isDirectory: true,
 		perm:        perm,
+		fs:          f,
+		parent:      parent,
 	}
 	f.inodes[path] = inode
-	parent.dirContent = append(parent.dirContent, inode)
 	return nil
 }
 
@@ -198,34 +201,41 @@ func (f *FakeFS) ReadDir(name string) ([]os.DirEntry, error) {
 }
 
 func (f *FakeFS) Readlink(name string) (string, error) { panic("TODO") }
+
 func (f *FakeFS) Remove(name string) error {
+	return f.remove(name, false)
+}
+
+func (f *FakeFS) RemoveAll(path string) error {
+	return f.remove(path, true)
+}
+
+func (f *FakeFS) remove(name string, all bool) error {
 	inode, ok := f.inodes[name]
 	if !ok {
+		if all {
+			return nil
+		}
 		return MakeWrappedError("Remove", name, os.ErrNotExist, "")
 	}
 	if inode.isDirectory {
-		if len(inode.dirContent) != 0 {
-			return MakeError("Remove", name, "directory is not empty")
+		content, err := f.getDirContent(name)
+		_ = err // TODO
+		if all {
+			for _, dinode := range content {
+				if err := f.remove(dinode.realName, true); err != nil {
+					return err
+				}
+			}
+		} else {
+			if len(content) != 0 {
+				return MakeError("Remove", name, "directory is not empty")
+			}
 		}
 	}
 	delete(f.inodes, name)
 	return nil
-}
 
-func (f *FakeFS) RemoveAll(path string) error {
-	inode, ok := f.inodes[path]
-	if !ok {
-		return nil
-	}
-	if inode.isDirectory {
-		for _, dinode := range inode.dirContent {
-			if err := f.RemoveAll(dinode.realName); err != nil {
-				return err
-			}
-		}
-	}
-	delete(f.inodes, path)
-	return nil
 }
 
 func (f *FakeFS) Rename(oldpath, newpath string) error {
@@ -233,19 +243,21 @@ func (f *FakeFS) Rename(oldpath, newpath string) error {
 	if !ok {
 		return MakeWrappedError("Rename", oldpath, os.ErrNotExist, "")
 	}
-	dir := filepath.Dir(newpath)
-	dirNode, ok := f.inodes[dir]
+
+	targetDir := filepath.Dir(newpath)
+	targetDirNode, ok := f.inodes[targetDir]
 	if !ok {
 		return MakeWrappedError("Rename", newpath, os.ErrNotExist, "directory on new path does not exist")
 	}
 
-	if !dirNode.isDirectory {
+	if !targetDirNode.isDirectory {
 		return MakeError("Rename", newpath, "target directory is not an directory")
 	}
 
 	delete(f.inodes, oldpath)
 	f.inodes[newpath] = inode
 	inode.realName = newpath
+	inode.parent = targetDirNode
 	return nil
 }
 
@@ -319,4 +331,22 @@ func (f *FakeFS) CorruptDirtyPages(seedRand *rand.Rand) {
 			}
 		}
 	}
+}
+
+func (f *FakeFS) getDirContent(path string) ([]*mockData, error) {
+	if path == "." {
+		path = f.workDir
+	}
+	
+	// TODO: check if have
+	var res []*mockData
+	for _, node := range f.inodes {
+		if node.parent == nil {
+			continue
+		}
+		if node.parent.realName == path {
+			res = append(res, node)
+		}
+	}
+	return res, nil
 }

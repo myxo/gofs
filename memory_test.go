@@ -141,20 +141,7 @@ func TestFS(t *testing.T) {
 				diOs, errOs := fpOs.ReadDir(n)
 				diFake, errFake := fpFake.ReadDir(n)
 				checkSyncError(t, errOs, errFake)
-				slices.SortFunc(diOs, func(a os.DirEntry, b os.DirEntry) int { return cmp.Compare(a.Name(), b.Name()) })
-				slices.SortFunc(diFake, func(a os.DirEntry, b os.DirEntry) int { return cmp.Compare(a.Name(), b.Name()) })
-				require.Equal(t, len(diOs), len(diFake))
-				for i := range diOs {
-					require.Equal(t, diOs[i].Name(), diFake[i].Name())
-					require.Equal(t, diOs[i].IsDir(), diFake[i].IsDir())
-					infoOs, errOs := diOs[i].Info()
-					infoFake, errFake := diFake[i].Info()
-					checkSyncError(t, errOs, errFake)
-					if errOs != nil {
-						require.Equal(t, infoOs.Size(), infoFake.Size())
-						require.Equal(t, infoOs.Mode(), infoFake.Mode())
-					}
-				}
+				CompareDirEntries(t, diOs, diFake)
 			},
 			"ReadFrom": func(t *rapid.T) {
 				fpOs, fpFake := getFiles()
@@ -304,14 +291,14 @@ func TestFS(t *testing.T) {
 			},
 			"FS_Remove": func(t *rapid.T) {
 				// TODO: remove also dirs and subdirs
-				p := rapid.SampledFrom(possibleFilenames).Draw(t, "dir")
+				p := rapid.SampledFrom(possibleFilenames).Draw(t, "path")
 				errOs := os.Remove(filepath.Join(dir, p))
 				errFake := fs.Remove(filepath.Join("/", p))
 				checkSyncError(t, errOs, errFake)
 			},
 			"FS_RemoveAll": func(t *rapid.T) {
 				// TODO: remove also dirs and subdirs
-				p := rapid.SampledFrom(possibleFilenames).Draw(t, "dir")
+				p := rapid.SampledFrom(possibleFilenames).Draw(t, "path")
 				errOs := os.RemoveAll(filepath.Join(dir, p))
 				errFake := fs.RemoveAll(filepath.Join("/", p))
 				checkSyncError(t, errOs, errFake)
@@ -354,7 +341,13 @@ func TestFS(t *testing.T) {
 					CompareFileInfo(t, fiOs, fiFake)
 				}
 			},
-			// "FS_ReadDir": func(t *rapid.T) {},
+			"FS_ReadDir": func(t *rapid.T) {
+				p := rapid.SampledFrom(possibleDirs).Draw(t, "dir")
+				diOs, errOs := os.ReadDir(filepath.Join(dir, p))
+				diFake, errFake := fs.ReadDir(filepath.Join("/", p))
+				checkSyncError(t, errOs, errFake)
+				CompareDirEntries(t, diOs, diFake)
+			},
 		})
 	})
 }
@@ -365,6 +358,23 @@ func CompareFileInfo(t *rapid.T, fiOs os.FileInfo, fiFake os.FileInfo) {
 	require.Equal(t, fiOs.Size(), fiFake.Size())
 	// we do not compare mode, since it depends on parent fs directory, so hard to check in property test
 	// We do not compare time, since it's hard to mock, and not really relevant
+}
+
+func CompareDirEntries(t *rapid.T, diOs []os.DirEntry, diFake []os.DirEntry) {
+	slices.SortFunc(diOs, func(a os.DirEntry, b os.DirEntry) int { return cmp.Compare(a.Name(), b.Name()) })
+	slices.SortFunc(diFake, func(a os.DirEntry, b os.DirEntry) int { return cmp.Compare(a.Name(), b.Name()) })
+	require.Equal(t, len(diOs), len(diFake))
+	for i := range diOs {
+		require.Equal(t, diOs[i].Name(), diFake[i].Name())
+		require.Equal(t, diOs[i].IsDir(), diFake[i].IsDir())
+		infoOs, errOs := diOs[i].Info()
+		infoFake, errFake := diFake[i].Info()
+		checkSyncError(t, errOs, errFake)
+		if errOs != nil {
+			require.Equal(t, infoOs.Size(), infoFake.Size())
+			require.Equal(t, infoOs.Mode(), infoFake.Mode())
+		}
+	}
 }
 
 func TestTmp(t *testing.T) {

@@ -36,7 +36,8 @@ type mockData struct {
 	buff        []byte
 	realName    string // this is synced with inodes map
 	isDirectory bool
-	dirContent  []*mockData // if isDirectory is true
+	fs          *FakeFS // TODO: move to FakeFile?
+	parent      *mockData
 	perm        os.FileMode
 	dyrtyPages  []interval // well... it's not exactly pages...
 }
@@ -52,7 +53,6 @@ func (m *mockData) reset() {
 	m.buff = m.buff[:0]
 	m.perm = 0
 	m.isDirectory = false
-	m.dirContent = nil
 }
 
 func (m *mockData) Size() int64 {
@@ -75,7 +75,6 @@ type FakeFile struct {
 	name          string
 	flag          int
 	cursor        int64
-	fs            FS
 	readDirSlice  []os.DirEntry // non empty only on directory iteration with ReadDir function
 	readDirSlice2 []os.FileInfo // non empty only on directory iteration with ReadDir function
 }
@@ -166,8 +165,10 @@ func (f *FakeFile) ReadDir(n int) ([]os.DirEntry, error) {
 		return nil, MakeError("ReadDir", f.name, "not a directory")
 	}
 	if f.readDirSlice == nil {
-		for i := range f.data.dirContent {
-			f.readDirSlice = append(f.readDirSlice, NewInfoDataFromNode(f.data.dirContent[i], f.data.dirContent[i].realName))
+		content, err := f.data.fs.getDirContent(f.name)
+		_ = err // TODO
+		for i := range content {
+			f.readDirSlice = append(f.readDirSlice, NewInfoDataFromNode(content[i], content[i].realName))
 		}
 	}
 	if n > 0 {
@@ -191,8 +192,10 @@ func (f *FakeFile) Readdir(n int) ([]os.FileInfo, error) {
 		return nil, MakeError("ReadDir", f.name, "not a directory")
 	}
 	if f.readDirSlice2 == nil {
-		for i := range f.data.dirContent {
-			f.readDirSlice2 = append(f.readDirSlice2, NewInfoDataFromNode(f.data.dirContent[i], f.data.dirContent[i].realName))
+		content, err := f.data.fs.getDirContent(f.name)
+		_ = err // TODO
+		for i := range content {
+			f.readDirSlice2 = append(f.readDirSlice2, NewInfoDataFromNode(content[i], content[i].realName))
 		}
 	}
 	if n > 0 {
