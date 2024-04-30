@@ -35,27 +35,23 @@ func listOsFiles(dirPath string) {
 
 func TestFS(t *testing.T) {
 	dir := t.TempDir()
-	possibleFilenames := []string{"/a/test.file.1", "/a/test.file.2", "/b/test.file.1", "/b/test.file.2"}
-	possibleDirs := []string{"/a", "/b"}
+	possibleFilenames := []string{"/foo/a/test.file.1", "/foo/a/test.file.2", "/foo/b/test.file.1", "/foo/b/test.file.2"}
+	possibleDirs := []string{".", "/foo", "/foo/a", "/foo/b"}
 
 	rapid.Check(t, func(t *rapid.T) {
 		fs := NewMemoryFs()
 		var osFiles []*File
 		var fakeFiles []*File
-		fileCount := 0
 
 		defer func() {
 			for i := range osFiles {
 				osFiles[i].Close()
 			}
-			os.RemoveAll(filepath.Join(dir, "a"))
-			os.RemoveAll(filepath.Join(dir, "b"))
+			_ = os.RemoveAll(filepath.Join(dir, "foo"))
 			fs.Release()
 		}()
-		err := fs.Mkdir("/a", 0777)
-		require.NoError(t, err)
-		err = os.MkdirAll(filepath.Join(dir, "a"), 0777)
-		require.NoError(t, err)
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "foo/a"), 0777))
+		require.NoError(t, fs.MkdirAll("/foo/a", 0777))
 		createFiles := func() {
 			fpOs, err := os.Create(filepath.Join(dir, possibleFilenames[0]))
 			require.NoError(t, err)
@@ -64,7 +60,6 @@ func TestFS(t *testing.T) {
 
 			osFiles = append(osFiles, NewFromOs(fpOs))
 			fakeFiles = append(fakeFiles, fpFake)
-			fileCount++
 		}
 		createFiles()
 
