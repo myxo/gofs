@@ -19,3 +19,4 @@ func TestResize(t *testing.T) {
 		}
 	})
 }
+

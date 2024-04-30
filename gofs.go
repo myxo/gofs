@@ -25,12 +25,17 @@ type FS interface {
 	Rename(oldpath, newpath string) error
 	Truncate(name string, size int64) error
 	WriteFile(name string, data []byte, perm os.FileMode) error
+	Stat(name string) (os.FileInfo, error)
 }
 
 type File struct {
 	mockFile *FakeFile
 	osFile   *os.File
 }
+
+var _ io.ReadCloser = &File{}
+var _ io.WriteCloser = &File{}
+var _ io.ReaderAt = &File{}
 
 func NewFromOs(fp *os.File) *File {
 	return &File{osFile: fp}
@@ -165,86 +170,98 @@ func (f *File) WriteString(s string) (n int, err error) {
 }
 func (f *File) WriteTo(w io.Writer) (n int64, err error) { panic("todo") }
 
+func (f *File) IsFake() bool {
+	return f.osFile == nil
+}
+
 //func (f *File) SetDeadline(t time.Time) error{ panic("todo") }
 //func (f *File) SetReadDeadline(t time.Time) error{ panic("todo") }
 //func (f *File) SetWriteDeadline(t time.Time) error{ panic("todo") }
 
-type OsFs struct{}
+type osFs struct{}
 
-var _ FS = &OsFs{}
+var _ FS = &osFs{}
 
-func (OsFs) Create(name string) (*File, error) {
+func OsFs() FS {
+	return &osFs{}
+}
+
+func (osFs) Create(name string) (*File, error) {
 	fp, err := os.Create(name)
 	return NewFromOs(fp), err
 }
 
-func (OsFs) CreateTemp(dir, pattern string) (*File, error) {
+func (osFs) CreateTemp(dir, pattern string) (*File, error) {
 	fp, err := os.CreateTemp(dir, pattern)
 	return NewFromOs(fp), err
 }
 
-func (OsFs) Open(name string) (*File, error) {
+func (osFs) Open(name string) (*File, error) {
 	fp, err := os.Open(name)
 	return NewFromOs(fp), err
 }
 
-func (OsFs) OpenFile(name string, flag int, perm os.FileMode) (*File, error) {
+func (osFs) OpenFile(name string, flag int, perm os.FileMode) (*File, error) {
 	fp, err := os.OpenFile(name, flag, perm)
 	return NewFromOs(fp), err
 }
 
-func (OsFs) Chdir(dir string) error {
+func (osFs) Chdir(dir string) error {
 	return os.Chdir(dir)
 }
 
-func (OsFs) Chmod(name string, mode os.FileMode) error {
+func (osFs) Chmod(name string, mode os.FileMode) error {
 	return os.Chmod(name, mode)
 }
 
-func (OsFs) Chown(name string, uid, gid int) error {
+func (osFs) Chown(name string, uid, gid int) error {
 	return os.Chown(name, uid, gid)
 }
 
-func (OsFs) Mkdir(name string, perm os.FileMode) error {
+func (osFs) Mkdir(name string, perm os.FileMode) error {
 	return os.Mkdir(name, perm)
 }
 
-func (OsFs) MkdirAll(path string, perm os.FileMode) error {
+func (osFs) MkdirAll(path string, perm os.FileMode) error {
 	return os.MkdirAll(path, perm)
 }
 
-func (OsFs) MkdirTemp(dir, pattern string) (string, error) {
+func (osFs) MkdirTemp(dir, pattern string) (string, error) {
 	return os.MkdirTemp(dir, pattern)
 }
 
-func (OsFs) ReadFile(name string) ([]byte, error) {
+func (osFs) ReadFile(name string) ([]byte, error) {
 	return os.ReadFile(name)
 }
 
-func (OsFs) Readlink(name string) (string, error) {
+func (osFs) Readlink(name string) (string, error) {
 	return os.Readlink(name)
 }
 
-func (OsFs) Remove(name string) error {
+func (osFs) Remove(name string) error {
 	return os.Remove(name)
 }
 
-func (OsFs) RemoveAll(path string) error {
+func (osFs) RemoveAll(path string) error {
 	return os.RemoveAll(path)
 }
 
-func (OsFs) Rename(oldpath, newpath string) error {
+func (osFs) Rename(oldpath, newpath string) error {
 	return os.Rename(oldpath, newpath)
 }
 
-func (OsFs) Truncate(name string, size int64) error {
+func (osFs) Truncate(name string, size int64) error {
 	return os.Truncate(name, size)
 }
 
-func (OsFs) WriteFile(name string, data []byte, perm os.FileMode) error {
+func (osFs) WriteFile(name string, data []byte, perm os.FileMode) error {
 	return os.WriteFile(name, data, perm)
 }
 
-func (OsFs) ReadDir(name string) ([]os.DirEntry, error) {
+func (osFs) ReadDir(name string) ([]os.DirEntry, error) {
 	return os.ReadDir(name)
+}
+
+func (osFs) Stat(name string) (os.FileInfo, error) {
+	return os.Stat(name)
 }

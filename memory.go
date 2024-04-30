@@ -11,6 +11,17 @@ import (
 	"unsafe"
 )
 
+func MakeError(op string, path string, text string) error {
+	return fmt.Errorf("%s %s: %s", op, path, text)
+}
+
+func MakeWrappedError(op string, path string, err error, text string) error {
+	if err == nil || err == io.EOF {
+		return err
+	}
+	return fmt.Errorf("%s %s: %w %s", op, path, err, text)
+}
+
 var filePool = sync.Pool{New: func() any {
 	return &mockData{
 		buff: make([]byte, 0, 32*1024),
@@ -25,7 +36,8 @@ type mockData struct {
 	buff        []byte
 	realName    string // this is synced with inodes map
 	isDirectory bool
-	dirContent  []*mockData // if isDirectory is true
+	fs          *FakeFS // TODO: move to FakeFile?
+	parent      *mockData
 	perm        os.FileMode
 	dyrtyPages  []interval // well... it's not exactly pages...
 }
@@ -41,7 +53,6 @@ func (m *mockData) reset() {
 	m.buff = m.buff[:0]
 	m.perm = 0
 	m.isDirectory = false
-	m.dirContent = nil
 }
 
 func (m *mockData) Size() int64 {
@@ -64,7 +75,6 @@ type FakeFile struct {
 	name          string
 	flag          int
 	cursor        int64
-	fs            FS
 	readDirSlice  []os.DirEntry // non empty only on directory iteration with ReadDir function
 	readDirSlice2 []os.FileInfo // non empty only on directory iteration with ReadDir function
 }
@@ -73,7 +83,7 @@ func (f *FakeFile) Chdir() error { panic("todo") }
 
 func (f *FakeFile) Chmod(mode os.FileMode) error {
 	if f.data == nil {
-		return fmt.Errorf("file already closed")
+		return os.ErrInvalid
 	}
 	f.data.perm = mode & fs.ModePerm
 	return nil
@@ -83,7 +93,7 @@ func (f *FakeFile) Chown(uid, gid int) error { panic("todo") }
 
 func (f *FakeFile) Close() error {
 	if f.data == nil {
-		return fmt.Errorf("file already closed")
+		return os.ErrInvalid
 	}
 	if err := f.Sync(); err != nil {
 		// TODO: should I release memory here?
@@ -103,12 +113,12 @@ func (f *FakeFile) Name() string {
 func (f *FakeFile) Read(b []byte) (n int, err error) {
 	n, err = f.pread(b, f.cursor)
 	f.cursor += int64(n)
-	return n, err
+	return n, MakeWrappedError("Read", f.name, err, "")
 }
 
 func (f *FakeFile) ReadAt(b []byte, off int64) (n int, err error) {
 	if off < 0 {
-		return 0, fmt.Errorf("negative offset")
+		return 0, MakeError("ReadAt", f.name, "negative offset")
 	}
 	// Mimic weird implementation of ReadAt from stdlib
 	for len(b) > 0 {
@@ -121,12 +131,12 @@ func (f *FakeFile) ReadAt(b []byte, off int64) (n int, err error) {
 		b = b[m:]
 		off += int64(m)
 	}
-	return n, err
+	return n, MakeWrappedError("ReadAt", f.name, err, "")
 }
 
 func (f *FakeFile) pread(b []byte, off int64) (n int, err error) {
 	if f.data == nil {
-		return 0, fmt.Errorf("file already closed")
+		return 0, os.ErrInvalid
 	}
 	if off < 0 {
 		return 0, fmt.Errorf("negative offset")
@@ -135,7 +145,7 @@ func (f *FakeFile) pread(b []byte, off int64) (n int, err error) {
 		return 0, nil
 	}
 	if !hasReadPerm(f.flag) {
-		return 0, fmt.Errorf("file %q open wiithout write permission", f.name)
+		return 0, fmt.Errorf("%w file open without write permission", os.ErrPermission)
 	}
 	if off > int64(len(f.data.buff)) {
 		return 0, io.ErrUnexpectedEOF
@@ -149,14 +159,16 @@ func (f *FakeFile) pread(b []byte, off int64) (n int, err error) {
 
 func (f *FakeFile) ReadDir(n int) ([]os.DirEntry, error) {
 	if f.data == nil {
-		return nil, fmt.Errorf("file already closed")
+		return nil, os.ErrInvalid
 	}
 	if !f.data.isDirectory {
-		return nil, fmt.Errorf("file %q not a directory", f.name)
+		return nil, MakeError("ReadDir", f.name, "not a directory")
 	}
 	if f.readDirSlice == nil {
-		for i := range f.data.dirContent {
-			f.readDirSlice = append(f.readDirSlice, NewInfoDataFromNode(f.data.dirContent[i], f.data.dirContent[i].realName))
+		content, err := f.data.fs.getDirContent(f.name)
+		_ = err // TODO
+		for i := range content {
+			f.readDirSlice = append(f.readDirSlice, NewInfoDataFromNode(content[i], content[i].realName))
 		}
 	}
 	if n > 0 {
@@ -174,14 +186,16 @@ func (f *FakeFile) ReadDir(n int) ([]os.DirEntry, error) {
 
 func (f *FakeFile) Readdir(n int) ([]os.FileInfo, error) {
 	if f.data == nil {
-		return nil, fmt.Errorf("file already closed")
+		return nil, os.ErrInvalid
 	}
 	if !f.data.isDirectory {
-		return nil, fmt.Errorf("file %q not a directory", f.data.realName)
+		return nil, MakeError("ReadDir", f.name, "not a directory")
 	}
 	if f.readDirSlice2 == nil {
-		for i := range f.data.dirContent {
-			f.readDirSlice2 = append(f.readDirSlice2, NewInfoDataFromNode(f.data.dirContent[i], f.data.dirContent[i].realName))
+		content, err := f.data.fs.getDirContent(f.name)
+		_ = err // TODO
+		for i := range content {
+			f.readDirSlice2 = append(f.readDirSlice2, NewInfoDataFromNode(content[i], content[i].realName))
 		}
 	}
 	if n > 0 {
@@ -231,7 +245,7 @@ type fileWithoutReadFrom struct {
 
 func (f *FakeFile) Seek(offset int64, whence int) (ret int64, err error) {
 	if f.data == nil {
-		return 0, fmt.Errorf("file already closed")
+		return 0, os.ErrInvalid
 	}
 	newOffset := int64(0)
 	start := int64(0)
@@ -245,7 +259,7 @@ func (f *FakeFile) Seek(offset int64, whence int) (ret int64, err error) {
 	}
 	newOffset = start + offset
 	if newOffset < 0 {
-		return 0, fmt.Errorf("seek offset is negative")
+		return 0, MakeError("Seek", f.name, "seek offset is negative")
 	}
 	f.cursor = newOffset
 	return newOffset, nil
@@ -253,7 +267,7 @@ func (f *FakeFile) Seek(offset int64, whence int) (ret int64, err error) {
 
 func (f *FakeFile) Stat() (os.FileInfo, error) {
 	if f.data == nil {
-		return nil, fmt.Errorf("file already closed")
+		return nil, os.ErrInvalid
 	}
 	// TODO: check read persmissions?
 	info := NewInfoDataFromNode(f.data, f.name)
@@ -262,7 +276,7 @@ func (f *FakeFile) Stat() (os.FileInfo, error) {
 
 func (f *FakeFile) Sync() error {
 	if f.data == nil {
-		return fmt.Errorf("file already closed")
+		return os.ErrInvalid
 	}
 	clear(f.data.dyrtyPages)
 	return nil
@@ -270,13 +284,13 @@ func (f *FakeFile) Sync() error {
 
 func (f *FakeFile) Truncate(size int64) error {
 	if f.data == nil {
-		return fmt.Errorf("file already closed")
+		return os.ErrInvalid
 	}
 	if size < 0 {
-		return fmt.Errorf("negative truncate size")
+		return MakeError("Truncate", f.name, "negative truncate size")
 	}
 	if !hasWritePerm(f.flag) {
-		return fmt.Errorf("file open without write permission")
+		return MakeWrappedError("Truncate", f.name, os.ErrPermission, "file open without write permission")
 	}
 	f.data.buff = resizeSlice(f.data.buff, int(size))
 	clear(f.data.buff[len(f.data.buff):cap(f.data.buff)])
@@ -285,7 +299,7 @@ func (f *FakeFile) Truncate(size int64) error {
 
 func (f *FakeFile) Write(b []byte) (n int, err error) {
 	if f.data == nil {
-		return 0, fmt.Errorf("file already closed")
+		return 0, os.ErrInvalid
 	}
 	writePos := f.cursor
 	if isAppend(f.flag) {
@@ -294,7 +308,7 @@ func (f *FakeFile) Write(b []byte) (n int, err error) {
 	n, err = f.pwrite(b, writePos)
 	// what with cursor with append flag? It doesn't matter?
 	f.cursor = writePos + int64(n)
-	return n, err
+	return n, MakeWrappedError("Write", f.name, err, "")
 }
 
 func (f *FakeFile) WriteAt(b []byte, off int64) (n int, err error) {
@@ -316,19 +330,19 @@ func (f *FakeFile) WriteAt(b []byte, off int64) (n int, err error) {
 		b = b[m:]
 		off += int64(m)
 	}
-	return n, err
+	return n, MakeWrappedError("WriteAt", f.name, err, "")
 }
 
 func (f *FakeFile) pwrite(b []byte, off int64) (n int, err error) {
 	if f.data == nil {
-		return 0, fmt.Errorf("file already closed")
+		return 0, os.ErrInvalid
 	}
 	if off < 0 {
 		return 0, fmt.Errorf("negative offset")
 	}
 
 	if !isReadWrite(f.flag) && !isWriteOnly(f.flag) {
-		return 0, fmt.Errorf("file %q open wiithout write permission", f.name)
+		return 0, fmt.Errorf("%w file open wiithout write permission", os.ErrPermission)
 	}
 
 	if len(b) == 0 {
@@ -369,7 +383,6 @@ func NewInfoDataFromNode(inode *mockData, name string) *infoData {
 	info.size = inode.Size()
 	info.mode = inode.perm
 	info.isDir = inode.isDirectory
-	// info.modTime = // TODO
 	return &info
 }
 
@@ -386,7 +399,8 @@ func (m *infoData) Mode() os.FileMode {
 }
 
 func (m *infoData) ModTime() time.Time {
-	panic("todo")
+	// TODO: make possibility to change modTime for test (e.g. via special function)
+	return m.modTime
 }
 
 func (m *infoData) IsDir() bool {
