@@ -148,7 +148,7 @@ func (f *FakeFile) pread(b []byte, off int64) (n int, err error) {
 		return 0, fmt.Errorf("%w file open without write permission", os.ErrPermission)
 	}
 	if off > int64(len(f.data.buff)) {
-		return 0, io.ErrUnexpectedEOF
+		return 0, io.EOF
 	}
 	n = copy(b, f.data.buff[off:])
 	if n == 0 {
@@ -227,10 +227,12 @@ func (f *FakeFile) ReadFrom(r io.Reader) (n int64, err error) {
 // Hack copypasted from stdlib
 // noReadFrom can be embedded alongside another type to
 // hide the ReadFrom method of that other type.
+//nolint:all
 type noReadFrom struct{}
 
 // ReadFrom hides another ReadFrom method.
 // It should never be called.
+//nolint:all
 func (noReadFrom) ReadFrom(io.Reader) (int64, error) {
 	panic("can't happen")
 }
@@ -239,6 +241,7 @@ func (noReadFrom) ReadFrom(io.Reader) (int64, error) {
 // than ReadFrom. This is used to permit ReadFrom to call io.Copy
 // without leading to a recursive call to ReadFrom.
 type fileWithoutReadFrom struct {
+	//nolint:all
 	noReadFrom
 	*FakeFile
 }
@@ -278,7 +281,7 @@ func (f *FakeFile) Sync() error {
 	if f.data == nil {
 		return os.ErrInvalid
 	}
-	clear(f.data.dyrtyPages)
+	f.data.dyrtyPages = f.data.dyrtyPages[:0]
 	return nil
 }
 

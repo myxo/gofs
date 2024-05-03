@@ -1,10 +1,12 @@
+Yet another file system mock library in go
+
 Features:
 - performance in non mock path (no interfaces)
-- profound testing (we use property based tsting to ensure simularity with real implementation
+- profound testing (we use property based tsting to ensure simularity with real implementation)
 
 Non features:
 - make a varaity of different backends (like NetFS, google cloud, s3, etc.). I try to keep package as clean from dependencies as possible
-- simulating of concurrent effect of filesystem (e.g. concurrent ReadDir with file removing)
+- simulating of concurrent effect of filesystem (e.g. concurrent ReadDir with file removing in different goroutine)
 
 TODO:
 - [ ] Make count in test to see how much function envocation we have
@@ -17,3 +19,5 @@ TODO:
 - [ ] Use more stdlib errors (how to test this?)
 - [ ] Test relative paths
 - [ ] Test wrapped error?
+- [ ] move all tests to subpackage, so users don't have to depend on rapid and testify
+- [ ] run with race, we should not give users false positives

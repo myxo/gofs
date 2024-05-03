@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"cmp"
 	"crypto/rand"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -27,14 +26,23 @@ func NoError(t TestingT, err error) {
 	}
 }
 
-
 func checkSyncError(t *rapid.T, errOs error, errFake error) {
 	t.Helper()
+
+	if errOs == io.EOF {
+		// EOF is special, since it often used as signal of stop (e.g. io.Copy), so we must return io.EOF when os does
+		if errFake != io.EOF {
+			t.Fatalf("os return io.EOF, but fake return %q", errFake)
+		}
+		return
+	}
+
 	if (errOs != nil) != (errFake != nil) {
 		t.Fatalf("os and fake impl produce different error os:%q fake=%q", errOs, errFake)
 	}
 }
 
+/*
 func listOsFiles(dirPath string) {
 	files, err := os.ReadDir(dirPath)
 	if err != nil {
@@ -45,6 +53,7 @@ func listOsFiles(dirPath string) {
 		fmt.Println(file.Name(), file.IsDir())
 	}
 }
+*/
 
 func TestFS(t *testing.T) {
 	dir := t.TempDir()
@@ -55,6 +64,7 @@ func TestFS(t *testing.T) {
 		fs := NewMemoryFs()
 		var osFiles []*File
 		var fakeFiles []*File
+		// workDir := "/"
 
 		defer func() {
 			for i := range osFiles {
@@ -63,9 +73,11 @@ func TestFS(t *testing.T) {
 			_ = os.RemoveAll(filepath.Join(dir, "foo"))
 			fs.Release()
 		}()
+
 		NoError(t, os.MkdirAll(filepath.Join(dir, "foo/a"), 0777))
 		NoError(t, fs.MkdirAll("/foo/a", 0777))
-		createFiles := func() {
+		{
+			// create first file, so we don't spend first iterations just on errors
 			fpOs, err := os.Create(filepath.Join(dir, possibleFilenames[0]))
 			NoError(t, err)
 			fpFake, err := fs.Create(filepath.Join("/", possibleFilenames[0]))
@@ -74,11 +86,33 @@ func TestFS(t *testing.T) {
 			osFiles = append(osFiles, NewFromOs(fpOs))
 			fakeFiles = append(fakeFiles, fpFake)
 		}
-		createFiles()
 
 		getFiles := func() (*File, *File) {
 			i := rapid.IntRange(0, len(osFiles)-1).Draw(t, "file index")
 			return osFiles[i], fakeFiles[i]
+		}
+
+		getFilePaths := func() (string, string) {
+			p := rapid.SampledFrom(possibleFilenames).Draw(t, "path")
+			osAbs := filepath.Join(dir, p)
+			fakeAbs := filepath.Join("/", p)
+			return osAbs, fakeAbs
+			//	if !rapid.Bool().Draw(t, "relative path") {
+			//		return osAbs, fakeAbs
+			//	}
+			//	fakeRel, err := filepath.Rel(workDir, fakeAbs)
+			//	NoError(t, err)
+			//	osWorkDir := filepath.Join(dir, workDir) // TODO: save var to not allocate?
+			//	osRel, err := filepath.Rel(osWorkDir, osAbs)
+			//	NoError(t, err)
+			//	return osRel, fakeRel
+		}
+
+		getDirPaths := func() (string, string) {
+			p := rapid.SampledFrom(possibleDirs).Draw(t, "path")
+			osP := filepath.Join(dir, p)
+			fakeP := filepath.Join("/", p)
+			return osP, fakeP
 		}
 
 		t.Repeat(map[string]func(*rapid.T){
@@ -86,7 +120,7 @@ func TestFS(t *testing.T) {
 				fpOs, fpFake := getFiles()
 				n := rapid.IntRange(0, 1024).Draw(t, "write size")
 				buff := make([]byte, n)
-				rand.Read(buff)
+				_, _ = rand.Read(buff)
 				nOs, errOs := fpOs.Write(buff)
 				nFake, errFake := fpFake.Write(buff)
 				checkSyncError(t, errOs, errFake)
@@ -99,7 +133,7 @@ func TestFS(t *testing.T) {
 				offset := rapid.Int64Range(-1, 1024).Draw(t, "write at offset")
 				n := rapid.IntRange(0, 1024).Draw(t, "write at size")
 				buff := make([]byte, n)
-				rand.Read(buff)
+				_, _ = rand.Read(buff)
 				nOs, errOs := fpOs.WriteAt(buff, offset)
 				nFake, errFake := fpFake.WriteAt(buff, offset)
 				checkSyncError(t, errOs, errFake)
@@ -224,9 +258,9 @@ func TestFS(t *testing.T) {
 				checkSyncError(t, errOs, errFake)
 			},
 			"FS_Create": func(t *rapid.T) {
-				p := rapid.SampledFrom(possibleFilenames).Draw(t, "file to create")
-				fpOs, errOs := os.Create(filepath.Join(dir, p))
-				fpFake, errFake := fs.Create(filepath.Join("/", p))
+				osPath, fakePath := getFilePaths()
+				fpOs, errOs := os.Create(osPath)
+				fpFake, errFake := fs.Create(fakePath)
 				checkSyncError(t, errOs, errFake)
 				if errOs == nil {
 					osFiles = append(osFiles, NewFromOs(fpOs))
@@ -235,9 +269,9 @@ func TestFS(t *testing.T) {
 			},
 			//			"FS_CreateTemp": func(t *rapid.T) {},
 			"FS_Open": func(t *rapid.T) {
-				p := rapid.SampledFrom(possibleFilenames).Draw(t, "file to create")
-				fpOs, errOs := os.Open(filepath.Join(dir, p))
-				fpFake, errFake := fs.Open(filepath.Join("/", p))
+				osPath, fakePath := getFilePaths()
+				fpOs, errOs := os.Open(osPath)
+				fpFake, errFake := fs.Open(fakePath)
 				checkSyncError(t, errOs, errFake)
 				if errOs == nil {
 					osFiles = append(osFiles, NewFromOs(fpOs))
@@ -245,7 +279,7 @@ func TestFS(t *testing.T) {
 				}
 			},
 			"FS_OpenFile": func(t *rapid.T) {
-				p := rapid.SampledFrom(possibleFilenames).Draw(t, "file to open")
+				osPath, fakePath := getFilePaths()
 				possibleModes := []os.FileMode{0666, 0222, 0444} // rw, w-only, r-only
 				perm := rapid.SampledFrom(possibleModes).Draw(t, "file perm")
 				flagMap := map[string]int{"readonly": os.O_RDONLY, "writeonly": os.O_WRONLY, "RDWR": os.O_RDWR}
@@ -264,100 +298,100 @@ func TestFS(t *testing.T) {
 					flag |= os.O_TRUNC
 				}
 
-				fpOs, errOs := os.OpenFile(filepath.Join(dir, p), flag, perm)
-				fpFake, errFake := fs.OpenFile(filepath.Join("/", p), flag, perm)
+				fpOs, errOs := os.OpenFile(osPath, flag, perm)
+				fpFake, errFake := fs.OpenFile(fakePath, flag, perm)
 				checkSyncError(t, errOs, errFake)
 				if errOs == nil {
 					osFiles = append(osFiles, NewFromOs(fpOs))
 					fakeFiles = append(fakeFiles, fpFake)
 				}
 			},
-			//			"FS_Chdir":      func(t *rapid.T) {},
+			"FS_Chdir": func(t *rapid.T) {
+				osPath, fakePath := getDirPaths()
+				errOs := os.Chdir(osPath)
+				errFake := fs.Chdir(fakePath)
+				checkSyncError(t, errOs, errFake)
+			},
 			"FS_Chmod": func(t *rapid.T) {
-				p := rapid.SampledFrom(possibleFilenames).Draw(t, "file to create")
+				osPath, fakePath := getFilePaths()
 				possibleModes := []os.FileMode{0666, 0222, 0444} // rw, w-only, r-only
 				mode := rapid.SampledFrom(possibleModes).Draw(t, "file mode")
-				errOs := os.Chmod(filepath.Join(dir, p), mode)
-				errFake := fs.Chmod(filepath.Join("/", p), mode)
+				errOs := os.Chmod(osPath, mode)
+				errFake := fs.Chmod(fakePath, mode)
 				checkSyncError(t, errOs, errFake)
 			},
 			//			"FS_Chown":      func(t *rapid.T) {},
 			"FS_Mkdir": func(t *rapid.T) {
-				p := rapid.SampledFrom(possibleDirs).Draw(t, "dir")
-				errOs := os.Mkdir(filepath.Join(dir, p), 0777)
-				errFake := fs.Mkdir(filepath.Join("/", p), 0777)
+				osPath, fakePath := getDirPaths()
+				errOs := os.Mkdir(osPath, 0777)
+				errFake := fs.Mkdir(fakePath, 0777)
 				checkSyncError(t, errOs, errFake)
 			},
 			"FS_MkdirAll": func(t *rapid.T) {
-				p := rapid.SampledFrom(possibleDirs).Draw(t, "dir")
-				errOs := os.MkdirAll(filepath.Join(dir, p), 0777)
-				errFake := fs.MkdirAll(filepath.Join("/", p), 0777)
+				osPath, fakePath := getDirPaths()
+				errOs := os.MkdirAll(osPath, 0777)
+				errFake := fs.MkdirAll(fakePath, 0777)
 				checkSyncError(t, errOs, errFake)
 			},
 			//			"FS_MkdirTemp":  func(t *rapid.T) {},
 			"FS_ReadFile": func(t *rapid.T) {
-				p := rapid.SampledFrom(possibleFilenames).Draw(t, "file")
-				contOs, errOs := os.ReadFile(filepath.Join(dir, p))
-				contFake, errFake := fs.ReadFile(filepath.Join("/", p))
+				osPath, fakePath := getFilePaths()
+				contOs, errOs := os.ReadFile(osPath)
+				contFake, errFake := fs.ReadFile(fakePath)
 				checkSyncError(t, errOs, errFake)
 				require.Equal(t, contOs, contFake)
 			},
 			"FS_Remove": func(t *rapid.T) {
 				// TODO: remove also dirs and subdirs
-				p := rapid.SampledFrom(possibleFilenames).Draw(t, "path")
-				errOs := os.Remove(filepath.Join(dir, p))
-				errFake := fs.Remove(filepath.Join("/", p))
+				osPath, fakePath := getFilePaths()
+				errOs := os.Remove(osPath)
+				errFake := fs.Remove(fakePath)
 				checkSyncError(t, errOs, errFake)
 			},
 			"FS_RemoveAll": func(t *rapid.T) {
 				// TODO: remove also dirs and subdirs
-				p := rapid.SampledFrom(possibleFilenames).Draw(t, "path")
-				errOs := os.RemoveAll(filepath.Join(dir, p))
-				errFake := fs.RemoveAll(filepath.Join("/", p))
+				osPath, fakePath := getFilePaths()
+				errOs := os.RemoveAll(osPath)
+				errFake := fs.RemoveAll(fakePath)
 				checkSyncError(t, errOs, errFake)
 			},
 			"FS_Rename": func(t *rapid.T) {
-				oldname := rapid.SampledFrom(possibleFilenames).Draw(t, "file")
-				newname := rapid.SampledFrom(possibleFilenames).Draw(t, "file")
-
-				oldOsPath := filepath.Join(dir, oldname)
-				newOsPath := filepath.Join(dir, newname)
-				oldFakePath := filepath.Join("/", oldname)
-				newFakePath := filepath.Join("/", newname)
+				oldOsPath, oldFakePath := getFilePaths()
+				newOsPath, newFakePath := getFilePaths()
 
 				errOs := os.Rename(oldOsPath, newOsPath)
 				errFake := fs.Rename(oldFakePath, newFakePath)
 				checkSyncError(t, errOs, errFake)
 			},
 			"FS_Truncate": func(t *rapid.T) {
-				p := rapid.SampledFrom(possibleFilenames).Draw(t, "file")
+				osPath, fakePath := getFilePaths()
 				n := rapid.Int64Range(0, 1024).Draw(t, "truncate size")
-				errOs := os.Truncate(filepath.Join(dir, p), n)
-				errFake := fs.Truncate(filepath.Join("/", p), n)
+				errOs := os.Truncate(osPath, n)
+				errFake := fs.Truncate(fakePath, n)
 				checkSyncError(t, errOs, errFake)
 			},
 			"FS_WriteFile": func(t *rapid.T) {
-				p := rapid.SampledFrom(possibleFilenames).Draw(t, "file")
+				osPath, fakePath := getFilePaths()
 				n := rapid.IntRange(0, 1024).Draw(t, "write size")
 				buff := make([]byte, n)
-				rand.Read(buff)
-				errOs := os.WriteFile(filepath.Join(dir, p), buff, 0777)
-				errFake := fs.WriteFile(filepath.Join("/", p), buff, 0777)
+				_, _ = rand.Read(buff)
+				errOs := os.WriteFile(osPath, buff, 0777)
+				errFake := fs.WriteFile(fakePath, buff, 0777)
 				checkSyncError(t, errOs, errFake)
 			},
 			"FS_Stat": func(t *rapid.T) {
-				p := rapid.SampledFrom(possibleFilenames).Draw(t, "file")
-				fiOs, errOs := os.Stat(filepath.Join(dir, p))
-				fiFake, errFake := fs.Stat(filepath.Join("/", p))
+				osPath, fakePath := getFilePaths()
+				fiOs, errOs := os.Stat(osPath)
+				fiFake, errFake := fs.Stat(fakePath)
 				checkSyncError(t, errOs, errFake)
 				if fiOs != nil {
 					CompareFileInfo(t, fiOs, fiFake)
 				}
 			},
 			"FS_ReadDir": func(t *rapid.T) {
-				p := rapid.SampledFrom(possibleDirs).Draw(t, "dir")
-				diOs, errOs := os.ReadDir(filepath.Join(dir, p))
-				diFake, errFake := fs.ReadDir(filepath.Join("/", p))
+				osPath, fakePath := getDirPaths()
+				diOs, errOs := os.ReadDir(osPath)
+				diFake, errFake := fs.ReadDir(fakePath)
 				checkSyncError(t, errOs, errFake)
 				CompareDirEntries(t, diOs, diFake)
 			},
@@ -389,4 +423,3 @@ func CompareDirEntries(t *rapid.T, diOs []os.DirEntry, diFake []os.DirEntry) {
 		}
 	}
 }
-

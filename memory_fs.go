@@ -107,7 +107,18 @@ func (f *FakeFS) OpenFile(name string, flag int, perm os.FileMode) (*File, error
 	}, nil
 }
 
-func (f *FakeFS) Chdir(dir string) error { panic("TODO") }
+func (f *FakeFS) Chdir(dir string) error {
+	inode, ok := f.inodes[dir]
+	if !ok {
+		return MakeWrappedError("Chdir", dir, os.ErrNotExist, "")
+	}
+	if !inode.isDirectory {
+		return MakeError("Chdir", dir, "not an directory")
+	}
+
+	f.workDir = dir
+	return nil
+}
 
 func (f *FakeFS) Chmod(name string, mode os.FileMode) error {
 	inode, ok := f.inodes[name]
