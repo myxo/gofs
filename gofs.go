@@ -3,6 +3,7 @@ package gofs
 import (
 	"io"
 	"os"
+	"time"
 )
 
 type FS interface {
@@ -62,7 +63,12 @@ func (f *File) Chmod(mode os.FileMode) error {
 	return f.mockFile.Chmod(mode)
 }
 
-func (f *File) Chown(uid, gid int) error { panic("todo") }
+func (f *File) Chown(uid, gid int) error {
+	if f.osFile != nil {
+		return f.osFile.Chown(uid, gid)
+	}
+	panic("todo")
+}
 
 func (f *File) Close() error {
 	if f.osFile != nil {
@@ -168,15 +174,44 @@ func (f *File) WriteString(s string) (n int, err error) {
 	}
 	return f.mockFile.WriteString(s)
 }
-func (f *File) WriteTo(w io.Writer) (n int64, err error) { panic("todo") }
+
+// TODO: support WriteTo for go 1.21?
+/*
+func (f *File) WriteTo(w io.Writer) (n int64, err error) {
+	if f.osFile != nil {
+		return f.osFile.WriteTo(w)
+	}
+	return f.mockFile.WriteTo(w)
+}
+*/
 
 func (f *File) IsFake() bool {
 	return f.osFile == nil
 }
 
-//func (f *File) SetDeadline(t time.Time) error{ panic("todo") }
-//func (f *File) SetReadDeadline(t time.Time) error{ panic("todo") }
-//func (f *File) SetWriteDeadline(t time.Time) error{ panic("todo") }
+func (f *File) SetDeadline(t time.Time) error {
+	if f.osFile != nil {
+		return f.osFile.SetDeadline(t)
+	}
+	// noop
+	return nil
+}
+
+func (f *File) SetReadDeadline(t time.Time) error {
+	if f.osFile != nil {
+		return f.osFile.SetReadDeadline(t)
+	}
+	// noop
+	return nil
+}
+
+func (f *File) SetWriteDeadline(t time.Time) error {
+	if f.osFile != nil {
+		return f.osFile.SetWriteDeadline(t)
+	}
+	// noop
+	return nil
+}
 
 type osFs struct{}
 

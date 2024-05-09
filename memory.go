@@ -1,6 +1,7 @@
 package gofs
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -9,17 +10,27 @@ import (
 	"sync"
 	"time"
 	"unsafe"
+
+	"github.com/myxo/gofs/internal/util"
 )
 
 func MakeError(op string, path string, text string) error {
-	return fmt.Errorf("%s %s: %s", op, path, text)
+	return &os.PathError{
+		Op:   op,
+		Path: path,
+		Err:  errors.New(text),
+	}
 }
 
-func MakeWrappedError(op string, path string, err error, text string) error {
+func MakeWrappedError(op string, path string, err error) error {
 	if err == nil || err == io.EOF {
 		return err
 	}
-	return fmt.Errorf("%s %s: %w %s", op, path, err, text)
+	return &os.PathError{
+		Op:   op,
+		Path: path,
+		Err:  err,
+	}
 }
 
 var filePool = sync.Pool{New: func() any {
@@ -79,7 +90,15 @@ type FakeFile struct {
 	readDirSlice2 []os.FileInfo // non empty only on directory iteration with ReadDir function
 }
 
-func (f *FakeFile) Chdir() error { panic("todo") }
+func (f *FakeFile) Chdir() error {
+	if f.data == nil {
+		return os.ErrInvalid
+	}
+	if !f.data.isDirectory {
+		return MakeError("Chdir", f.name, "not a directory")
+	}
+	return f.data.fs.Chdir(f.name)
+}
 
 func (f *FakeFile) Chmod(mode os.FileMode) error {
 	if f.data == nil {
@@ -113,7 +132,7 @@ func (f *FakeFile) Name() string {
 func (f *FakeFile) Read(b []byte) (n int, err error) {
 	n, err = f.pread(b, f.cursor)
 	f.cursor += int64(n)
-	return n, MakeWrappedError("Read", f.name, err, "")
+	return n, MakeWrappedError("Read", f.name, err)
 }
 
 func (f *FakeFile) ReadAt(b []byte, off int64) (n int, err error) {
@@ -131,7 +150,7 @@ func (f *FakeFile) ReadAt(b []byte, off int64) (n int, err error) {
 		b = b[m:]
 		off += int64(m)
 	}
-	return n, MakeWrappedError("ReadAt", f.name, err, "")
+	return n, MakeWrappedError("ReadAt", f.name, err)
 }
 
 func (f *FakeFile) pread(b []byte, off int64) (n int, err error) {
@@ -144,7 +163,7 @@ func (f *FakeFile) pread(b []byte, off int64) (n int, err error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
-	if !hasReadPerm(f.flag) {
+	if !util.HasReadPerm(f.flag) {
 		return 0, fmt.Errorf("%w file open without write permission", os.ErrPermission)
 	}
 	if off > int64(len(f.data.buff)) {
@@ -227,11 +246,13 @@ func (f *FakeFile) ReadFrom(r io.Reader) (n int64, err error) {
 // Hack copypasted from stdlib
 // noReadFrom can be embedded alongside another type to
 // hide the ReadFrom method of that other type.
+//
 //nolint:all
 type noReadFrom struct{}
 
 // ReadFrom hides another ReadFrom method.
 // It should never be called.
+//
 //nolint:all
 func (noReadFrom) ReadFrom(io.Reader) (int64, error) {
 	panic("can't happen")
@@ -292,10 +313,10 @@ func (f *FakeFile) Truncate(size int64) error {
 	if size < 0 {
 		return MakeError("Truncate", f.name, "negative truncate size")
 	}
-	if !hasWritePerm(f.flag) {
-		return MakeWrappedError("Truncate", f.name, os.ErrPermission, "file open without write permission")
+	if !util.HasWritePerm(f.flag) {
+		return MakeWrappedError("Truncate", f.name, os.ErrInvalid) // yes, not ErrPermission
 	}
-	f.data.buff = resizeSlice(f.data.buff, int(size))
+	f.data.buff = util.ResizeSlice(f.data.buff, int(size))
 	clear(f.data.buff[len(f.data.buff):cap(f.data.buff)])
 	return nil
 }
@@ -305,20 +326,20 @@ func (f *FakeFile) Write(b []byte) (n int, err error) {
 		return 0, os.ErrInvalid
 	}
 	writePos := f.cursor
-	if isAppend(f.flag) {
+	if util.IsAppend(f.flag) {
 		writePos = f.data.Size()
 	}
 	n, err = f.pwrite(b, writePos)
 	// what with cursor with append flag? It doesn't matter?
 	f.cursor = writePos + int64(n)
-	return n, MakeWrappedError("Write", f.name, err, "")
+	return n, MakeWrappedError("Write", f.name, err)
 }
 
 func (f *FakeFile) WriteAt(b []byte, off int64) (n int, err error) {
 	if off < 0 {
 		return 0, fmt.Errorf("negative offset")
 	}
-	if isAppend(f.flag) {
+	if util.IsAppend(f.flag) {
 		return 0, fmt.Errorf("invalid use of WriteAt on file opened with O_APPEND")
 	}
 
@@ -333,7 +354,7 @@ func (f *FakeFile) WriteAt(b []byte, off int64) (n int, err error) {
 		b = b[m:]
 		off += int64(m)
 	}
-	return n, MakeWrappedError("WriteAt", f.name, err, "")
+	return n, MakeWrappedError("WriteAt", f.name, err)
 }
 
 func (f *FakeFile) pwrite(b []byte, off int64) (n int, err error) {
@@ -344,7 +365,7 @@ func (f *FakeFile) pwrite(b []byte, off int64) (n int, err error) {
 		return 0, fmt.Errorf("negative offset")
 	}
 
-	if !isReadWrite(f.flag) && !isWriteOnly(f.flag) {
+	if !util.IsReadWrite(f.flag) && !util.IsWriteOnly(f.flag) {
 		return 0, fmt.Errorf("%w file open wiithout write permission", os.ErrPermission)
 	}
 
@@ -353,11 +374,11 @@ func (f *FakeFile) pwrite(b []byte, off int64) (n int, err error) {
 	}
 
 	if len(f.data.buff) < int(off)+len(b) {
-		f.data.buff = resizeSlice(f.data.buff, int(off)+len(b))
+		f.data.buff = util.ResizeSlice(f.data.buff, int(off)+len(b))
 	}
 	n = copy(f.data.buff[off:], b)
 
-	f.data.dyrtyPages = append(f.data.dyrtyPages, interval{from: off, to: off + int64(n)})
+	//f.data.dyrtyPages = append(f.data.dyrtyPages, interval{from: off, to: off + int64(n)})
 	return n, nil
 }
 
@@ -366,7 +387,30 @@ func (f *FakeFile) WriteString(s string) (n int, err error) {
 	return f.Write(b)
 }
 
-func (f *FakeFile) WriteTo(w io.Writer) (n int64, err error) { panic("todo") }
+/*
+// noWriteTo can be embedded alongside another type to
+// hide the WriteTo method of that other type.
+type noWriteTo struct{}
+
+// WriteTo hides another WriteTo method.
+// It should never be called.
+func (noWriteTo) WriteTo(io.Writer) (int64, error) {
+	panic("can't happen")
+}
+
+// fileWithoutWriteTo implements all the methods of *File other
+// than WriteTo. This is used to permit WriteTo to call io.Copy
+// without leading to a recursive call to WriteTo.
+type fileWithoutWriteTo struct {
+	noWriteTo
+	*FakeFile
+}
+
+func (f *FakeFile) WriteTo(w io.Writer) (n int64, err error) {
+	// TODO: can I just copy, without fileWithoutWriteTo?
+	return io.Copy(w, fileWithoutWriteTo{FakeFile: f})
+}
+*/
 
 type infoData struct {
 	name    string
