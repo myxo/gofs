@@ -1,30 +1,22 @@
-package gofs
+package memory
 
 import (
 	"bytes"
 	"cmp"
 	"crypto/rand"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
+
+	"github.com/myxo/gofs"
 
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 )
-
-type TestingT interface {
-	Fatalf(format string, a ...any)
-	Helper()
-}
-
-func NoError(t TestingT, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatalf("Unexpected error: %+v", err)
-	}
-}
 
 func checkSyncError(t *rapid.T, errOs error, errFake error) {
 	t.Helper()
@@ -37,6 +29,15 @@ func checkSyncError(t *rapid.T, errOs error, errFake error) {
 		return
 	}
 
+	if os.IsExist(errOs) != os.IsExist(errFake) {
+		t.Fatalf("os and fake impl tread os.IsExist differently os:%q fake=%q", errOs, errFake)
+	}
+	if os.IsNotExist(errOs) != os.IsNotExist(errFake) {
+		t.Fatalf("os and fake impl tread os.IsNotExist differently os:%q fake=%q", errOs, errFake)
+	}
+	if os.IsPermission(errOs) != os.IsPermission(errFake) {
+		t.Fatalf("os and fake impl tread os.IsPermission differently os:%q fake=%q", errOs, errFake)
+	}
 	if (errOs != nil) != (errFake != nil) {
 		t.Fatalf("os and fake impl produce different error os:%q fake=%q", errOs, errFake)
 	}
@@ -60,34 +61,40 @@ func TestFS(t *testing.T) {
 	possibleFilenames := []string{"/foo/a/test.file.1", "/foo/a/test.file.2", "/foo/b/test.file.1", "/foo/b/test.file.2"}
 	possibleDirs := []string{".", "/foo", "/foo/a", "/foo/b"}
 
+	resetStat()
+	var memStat runtime.MemStats
+	runtime.ReadMemStats(&memStat)
+
 	rapid.Check(t, func(t *rapid.T) {
-		fs := NewMemoryFs()
-		var osFiles []*File
-		var fakeFiles []*File
-		// workDir := "/"
+		fs := &statFs{fs: gofs.NewMemoryFs()}
+		var osFiles []*gofs.File
+		var fakeFiles []*statFile
+		workDir := "/"
+		err := os.Chdir(dir)
+		require.NoError(t, err)
 
 		defer func() {
 			for i := range osFiles {
 				osFiles[i].Close()
 			}
 			_ = os.RemoveAll(filepath.Join(dir, "foo"))
-			fs.Release()
+			fs.fs.Release()
 		}()
 
-		NoError(t, os.MkdirAll(filepath.Join(dir, "foo/a"), 0777))
-		NoError(t, fs.MkdirAll("/foo/a", 0777))
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "foo/a"), 0777))
+		require.NoError(t, fs.MkdirAll("/foo/a", 0777))
 		{
 			// create first file, so we don't spend first iterations just on errors
 			fpOs, err := os.Create(filepath.Join(dir, possibleFilenames[0]))
-			NoError(t, err)
+			require.NoError(t, err)
 			fpFake, err := fs.Create(filepath.Join("/", possibleFilenames[0]))
-			NoError(t, err)
+			require.NoError(t, err)
 
-			osFiles = append(osFiles, NewFromOs(fpOs))
-			fakeFiles = append(fakeFiles, fpFake)
+			osFiles = append(osFiles, gofs.NewFromOs(fpOs))
+			fakeFiles = append(fakeFiles, &statFile{fp: fpFake})
 		}
 
-		getFiles := func() (*File, *File) {
+		getFiles := func() (*gofs.File, *statFile) {
 			i := rapid.IntRange(0, len(osFiles)-1).Draw(t, "file index")
 			return osFiles[i], fakeFiles[i]
 		}
@@ -96,16 +103,15 @@ func TestFS(t *testing.T) {
 			p := rapid.SampledFrom(possibleFilenames).Draw(t, "path")
 			osAbs := filepath.Join(dir, p)
 			fakeAbs := filepath.Join("/", p)
-			return osAbs, fakeAbs
-			//	if !rapid.Bool().Draw(t, "relative path") {
-			//		return osAbs, fakeAbs
-			//	}
-			//	fakeRel, err := filepath.Rel(workDir, fakeAbs)
-			//	NoError(t, err)
-			//	osWorkDir := filepath.Join(dir, workDir) // TODO: save var to not allocate?
-			//	osRel, err := filepath.Rel(osWorkDir, osAbs)
-			//	NoError(t, err)
-			//	return osRel, fakeRel
+			if !rapid.Bool().Draw(t, "relative path") {
+				return osAbs, fakeAbs
+			}
+			fakeRel, err := filepath.Rel(workDir, fakeAbs)
+			require.NoError(t, err)
+			osWorkDir := filepath.Join(dir, workDir) // TODO: save var to not allocate?
+			osRel, err := filepath.Rel(osWorkDir, osAbs)
+			require.NoError(t, err)
+			return osRel, fakeRel
 		}
 
 		getDirPaths := func() (string, string) {
@@ -174,8 +180,12 @@ func TestFS(t *testing.T) {
 				errFake := fpFake.Chmod(mode)
 				checkSyncError(t, errOs, errFake)
 			},
-			//			//"Chown": func(t *rapid.T) {}, // TODO: ??
-			//			//"Chdir": func(t *rapid.T) {}, // TODO: ??
+			"Chdir": func(t *rapid.T) {
+				fpOs, fpFake := getFiles()
+				errOs := fpOs.Chdir()
+				errFake := fpFake.Chdir()
+				checkSyncError(t, errOs, errFake)
+			},
 			"Close": func(t *rapid.T) {
 				fpOs, fpFake := getFiles()
 				errOs := fpOs.Close()
@@ -192,14 +202,26 @@ func TestFS(t *testing.T) {
 			},
 			"ReadFrom": func(t *rapid.T) {
 				fpOs, fpFake := getFiles()
-				var buffOs bytes.Buffer
-				var buffFake bytes.Buffer
-				nOs, errOs := fpOs.ReadFrom(&buffOs)
-				nFake, errFake := fpFake.ReadFrom(&buffFake)
+				n := rapid.IntRange(0, 1024).Draw(t, "write size")
+				buff := make([]byte, n)
+				_, _ = rand.Read(buff)
+				nOs, errOs := fpOs.ReadFrom(bytes.NewReader(buff))
+				nFake, errFake := fpFake.ReadFrom(bytes.NewReader(buff))
 				checkSyncError(t, errOs, errFake)
 				require.Equal(t, nOs, nFake)
-				require.Equal(t, buffOs.Bytes(), buffFake.Bytes())
 			},
+			/*
+				"WriteTo": func(t *rapid.T) {
+					fpOs, fpFake := getFiles()
+					var buffOs bytes.Buffer
+					var buffFake bytes.Buffer
+					nOs, errOs := fpOs.WriteTo(&buffOs)
+					nFake, errFake := fpFake.WriteTo(&buffFake)
+					checkSyncError(t, errOs, errFake)
+					require.Equal(t, nOs, nFake)
+					require.Equal(t, buffOs.Bytes(), buffFake.Bytes())
+				},
+			*/
 			"Readdir": func(t *rapid.T) {
 				fpOs, fpFake := getFiles()
 				n := rapid.IntRange(-1, 3).Draw(t, "readdir n")
@@ -263,19 +285,18 @@ func TestFS(t *testing.T) {
 				fpFake, errFake := fs.Create(fakePath)
 				checkSyncError(t, errOs, errFake)
 				if errOs == nil {
-					osFiles = append(osFiles, NewFromOs(fpOs))
-					fakeFiles = append(fakeFiles, fpFake)
+					osFiles = append(osFiles, gofs.NewFromOs(fpOs))
+					fakeFiles = append(fakeFiles, &statFile{fp: fpFake})
 				}
 			},
-			//			"FS_CreateTemp": func(t *rapid.T) {},
 			"FS_Open": func(t *rapid.T) {
 				osPath, fakePath := getFilePaths()
 				fpOs, errOs := os.Open(osPath)
 				fpFake, errFake := fs.Open(fakePath)
 				checkSyncError(t, errOs, errFake)
 				if errOs == nil {
-					osFiles = append(osFiles, NewFromOs(fpOs))
-					fakeFiles = append(fakeFiles, fpFake)
+					osFiles = append(osFiles, gofs.NewFromOs(fpOs))
+					fakeFiles = append(fakeFiles, &statFile{fp: fpFake})
 				}
 			},
 			"FS_OpenFile": func(t *rapid.T) {
@@ -302,8 +323,8 @@ func TestFS(t *testing.T) {
 				fpFake, errFake := fs.OpenFile(fakePath, flag, perm)
 				checkSyncError(t, errOs, errFake)
 				if errOs == nil {
-					osFiles = append(osFiles, NewFromOs(fpOs))
-					fakeFiles = append(fakeFiles, fpFake)
+					osFiles = append(osFiles, gofs.NewFromOs(fpOs))
+					fakeFiles = append(fakeFiles, &statFile{fp: fpFake})
 				}
 			},
 			"FS_Chdir": func(t *rapid.T) {
@@ -320,7 +341,6 @@ func TestFS(t *testing.T) {
 				errFake := fs.Chmod(fakePath, mode)
 				checkSyncError(t, errOs, errFake)
 			},
-			//			"FS_Chown":      func(t *rapid.T) {},
 			"FS_Mkdir": func(t *rapid.T) {
 				osPath, fakePath := getDirPaths()
 				errOs := os.Mkdir(osPath, 0777)
@@ -333,7 +353,6 @@ func TestFS(t *testing.T) {
 				errFake := fs.MkdirAll(fakePath, 0777)
 				checkSyncError(t, errOs, errFake)
 			},
-			//			"FS_MkdirTemp":  func(t *rapid.T) {},
 			"FS_ReadFile": func(t *rapid.T) {
 				osPath, fakePath := getFilePaths()
 				contOs, errOs := os.ReadFile(osPath)
@@ -397,6 +416,11 @@ func TestFS(t *testing.T) {
 			},
 		})
 	})
+
+	printStat()
+	var memStatAfter runtime.MemStats
+	runtime.ReadMemStats(&memStatAfter)
+	fmt.Printf("Mallocs: %d\n", memStatAfter.Mallocs-memStat.Mallocs)
 }
 
 func CompareFileInfo(t *rapid.T, fiOs os.FileInfo, fiFake os.FileInfo) {
@@ -422,4 +446,61 @@ func CompareDirEntries(t *rapid.T, diOs []os.DirEntry, diFake []os.DirEntry) {
 			require.Equal(t, infoOs.Mode(), infoFake.Mode())
 		}
 	}
+}
+
+func TestStandardErrorChecks(t *testing.T) {
+	t.Run("not exist", func(t *testing.T) {
+		fs := gofs.NewMemoryFs()
+		_, err := fs.OpenFile("test", os.O_RDWR, 0666)
+		require.True(t, os.IsNotExist(err))
+	})
+
+	t.Run("exist", func(t *testing.T) {
+		fs := gofs.NewMemoryFs()
+		fp, err := fs.OpenFile("test", os.O_CREATE|os.O_EXCL, 0666)
+		require.NoError(t, err)
+		_ = fp.Close()
+		_, err = fs.OpenFile("test", os.O_CREATE|os.O_EXCL, 0666)
+		require.True(t, os.IsExist(err))
+	})
+}
+
+func TestCheckTempCreation(t *testing.T) {
+	// TODO
+	//			"FS_CreateTemp": func(t *rapid.T) {},
+	//			"FS_MkdirTemp": func(t *rapid.T) {},
+}
+
+func BenchmarkWriter(b *testing.B) {
+	fs := gofs.NewMemoryFs()
+	fp, err := fs.OpenFile("test", os.O_CREATE|os.O_EXCL|os.O_RDWR, 0666)
+	require.NoError(b, err)
+	buff := make([]byte, 25)
+	_, _ = rand.Read(buff)
+	b.Run("write", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_, _ = fp.WriteAt(buff, 0)
+		}
+	})
+	b.Run("read", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_, _ = fp.ReadAt(buff, 0)
+		}
+	})
+	b.Run("readDir", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_, _ = fs.ReadDir("/")
+		}
+	})
+	fpRootDir, err := fs.Open("/")
+	require.NoError(b, err)
+	b.Run("readDir file", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_, _ = fpRootDir.Readdir(-1)
+		}
+	})
 }

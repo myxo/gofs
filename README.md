@@ -5,19 +5,18 @@ Features:
 - profound testing (we use property based tsting to ensure simularity with real implementation)
 
 Non features:
-- make a varaity of different backends (like NetFS, google cloud, s3, etc.). I try to keep package as clean from dependencies as possible
+- make a variety of different backends (NetFS, google cloud, s3, etc.). I try to keep this package as clean from dependencies as possible
 - simulating of concurrent effect of filesystem (e.g. concurrent ReadDir with file removing in different goroutine)
 
 TODO:
-- [ ] Make count in test to see how much function envocation we have
 - [ ] Document what fileMode are supported
 - [ ] O_APPEND
 - [ ] Fallocate?
 - [ ] copy paste docs from orig functions
-- [ ] subdirs in tests
-- [ ] CI with test and fmtcheck
-- [ ] Use more stdlib errors (how to test this?)
 - [ ] Test relative paths
-- [ ] Test wrapped error?
-- [ ] move all tests to subpackage, so users don't have to depend on rapid and testify
-- [ ] run with race, we should not give users false positives
+- [ ] add mode there instead on std error we get stacktrace inside error?
+- [ ] add thread safe fs?
+- [ ] add benchmark to track allocation
+- [ ] make good readme file
+- [ ] try to add fuzzing (and try to introduce errors)
+- [ ] add example of extension (compressed reader?)

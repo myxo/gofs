@@ -1,13 +1,16 @@
 package gofs
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 	"io/fs"
 	"math/rand"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
+
+	"github.com/myxo/gofs/internal/util"
 )
 
 type FakeFS struct {
@@ -46,28 +49,34 @@ func (f *FakeFS) Open(name string) (*File, error) {
 }
 
 func checkOpenPerm(flag int, inode *mockData) error {
-	if hasWritePerm(flag) && !inode.hasWritePerm() {
-		return fmt.Errorf("file does not have write perm")
+	if util.HasWritePerm(flag) && !inode.hasWritePerm() {
+		return os.ErrPermission
 	}
-	if hasReadPerm(flag) && !inode.hasReadPerm() {
-		return fmt.Errorf("file does not have read perm")
+	if util.HasReadPerm(flag) && !inode.hasReadPerm() {
+		return os.ErrPermission
 	}
 	return nil
 }
 
-func (f *FakeFS) OpenFile(name string, flag int, perm os.FileMode) (*File, error) {
-	dirPath := filepath.Dir(name)
-	if dirPath == "" || dirPath == "." {
-		dirPath = f.workDir
+func (f *FakeFS) normilizePath(path string) string {
+	path = filepath.Clean(path)
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(f.workDir, path)
 	}
+	return path
+}
+
+func (f *FakeFS) OpenFile(name string, flag int, perm os.FileMode) (*File, error) {
+	name = f.normilizePath(name)
+	dirPath := filepath.Dir(name)
 	dir, dirExist := f.inodes[dirPath]
 	if !dirExist || !dir.isDirectory {
-		return nil, MakeError("OpenFile", name, "dir not exist")
+		return nil, MakeWrappedError("OpenFile", name, os.ErrNotExist)
 	}
 	inode, ok := f.inodes[name]
 	if !ok {
-		if !isCreate(flag) {
-			return nil, MakeWrappedError("OpenFile", name, os.ErrNotExist, "")
+		if !util.IsCreate(flag) {
+			return nil, MakeWrappedError("OpenFile", name, os.ErrNotExist)
 		}
 		// TODO: check directory perms
 		inode = filePool.Get().(*mockData)
@@ -76,22 +85,22 @@ func (f *FakeFS) OpenFile(name string, flag int, perm os.FileMode) (*File, error
 		inode.perm = perm
 		inode.fs = f
 		inode.parent = dir
-		if !isCreate(flag) { // read and write allowed with any perm if you just created the file
+		if !util.IsCreate(flag) { // read and write allowed with any perm if you just created the file
 			if err := checkOpenPerm(flag, inode); err != nil {
-				return nil, MakeWrappedError("OpenFile", name, err, "")
+				return nil, MakeWrappedError("OpenFile", name, os.ErrNotExist)
 			}
 		}
 		f.inodes[name] = inode
 	} else {
+		if util.IsCreate(flag) && util.IsExclusive(flag) {
+			return nil, MakeWrappedError("OpenFile", name, os.ErrExist)
+		}
 		if err := checkOpenPerm(flag, inode); err != nil {
-			return nil, MakeWrappedError("OpenFile", name, err, "")
+			return nil, MakeWrappedError("OpenFile", name, err)
 		}
-		if isCreate(flag) && isExclusive(flag) {
-			return nil, MakeWrappedError("OpenFile", name, os.ErrExist, "with create flag")
-		}
-		if isTruncate(flag) {
+		if util.IsTruncate(flag) {
 			if !inode.hasWritePerm() {
-				return nil, MakeWrappedError("OpenFile", name, os.ErrPermission, "file does not have write perm")
+				return nil, MakeWrappedError("OpenFile", name, os.ErrPermission)
 			}
 			clear(inode.buff)
 			inode.buff = inode.buff[:0]
@@ -108,9 +117,10 @@ func (f *FakeFS) OpenFile(name string, flag int, perm os.FileMode) (*File, error
 }
 
 func (f *FakeFS) Chdir(dir string) error {
+	dir = f.normilizePath(dir)
 	inode, ok := f.inodes[dir]
 	if !ok {
-		return MakeWrappedError("Chdir", dir, os.ErrNotExist, "")
+		return MakeWrappedError("Chdir", dir, os.ErrNotExist)
 	}
 	if !inode.isDirectory {
 		return MakeError("Chdir", dir, "not an directory")
@@ -121,9 +131,10 @@ func (f *FakeFS) Chdir(dir string) error {
 }
 
 func (f *FakeFS) Chmod(name string, mode os.FileMode) error {
+	name = f.normilizePath(name)
 	inode, ok := f.inodes[name]
 	if !ok {
-		return MakeWrappedError("Chmod", name, os.ErrNotExist, "")
+		return MakeWrappedError("Chmod", name, os.ErrNotExist)
 	}
 	inode.perm = mode & fs.ModePerm
 	return nil
@@ -132,6 +143,7 @@ func (f *FakeFS) Chmod(name string, mode os.FileMode) error {
 func (f *FakeFS) Chown(name string, uid, gid int) error { panic("TODO") }
 
 func (f *FakeFS) Mkdir(name string, perm os.FileMode) error {
+	name = f.normilizePath(name)
 	parentPath := filepath.Dir(name)
 	parent, parentExist := f.inodes[parentPath]
 	if !parentExist || !parent.isDirectory {
@@ -139,7 +151,7 @@ func (f *FakeFS) Mkdir(name string, perm os.FileMode) error {
 	}
 
 	if _, exist := f.inodes[name]; exist {
-		return MakeWrappedError("Mkdir", name, os.ErrExist, "")
+		return MakeWrappedError("Mkdir", name, os.ErrExist)
 	}
 
 	inode := &mockData{
@@ -207,7 +219,7 @@ func (f *FakeFS) ReadDir(name string) ([]os.DirEntry, error) {
 	defer fp.Close()
 
 	dirs, err := fp.ReadDir(-1)
-	sort.Slice(dirs, func(i, j int) bool { return dirs[i].Name() < dirs[j].Name() })
+	slices.SortFunc(dirs, func (a os.DirEntry, b os.DirEntry) int { return cmp.Compare(a.Name(), b.Name())})
 	return dirs, err
 }
 
@@ -222,12 +234,13 @@ func (f *FakeFS) RemoveAll(path string) error {
 }
 
 func (f *FakeFS) remove(name string, all bool) error {
+	name = f.normilizePath(name)
 	inode, ok := f.inodes[name]
 	if !ok {
 		if all {
 			return nil
 		}
-		return MakeWrappedError("Remove", name, os.ErrNotExist, "")
+		return MakeWrappedError("Remove", name, os.ErrNotExist)
 	}
 	if inode.isDirectory {
 		content, err := f.getDirContent(name)
@@ -250,19 +263,21 @@ func (f *FakeFS) remove(name string, all bool) error {
 }
 
 func (f *FakeFS) Rename(oldpath, newpath string) error {
+	oldpath = f.normilizePath(oldpath)
+	newpath = f.normilizePath(newpath)
 	inode, ok := f.inodes[oldpath]
 	if !ok {
-		return MakeWrappedError("Rename", oldpath, os.ErrNotExist, "")
+		return MakeWrappedError("Rename", oldpath, os.ErrNotExist)
 	}
 
 	targetDir := filepath.Dir(newpath)
 	targetDirNode, ok := f.inodes[targetDir]
 	if !ok {
-		return MakeWrappedError("Rename", newpath, os.ErrNotExist, "directory on new path does not exist")
+		return &os.LinkError{Op: "Rename", Old: oldpath, New: newpath, Err: os.ErrNotExist}
 	}
 
 	if !targetDirNode.isDirectory {
-		return MakeError("Rename", newpath, "target directory is not an directory")
+		return &os.LinkError{Op: "Rename", Old: oldpath, New: newpath, Err: os.ErrInvalid}
 	}
 
 	delete(f.inodes, oldpath)
@@ -273,15 +288,16 @@ func (f *FakeFS) Rename(oldpath, newpath string) error {
 }
 
 func (f *FakeFS) Truncate(name string, size int64) error {
+	name = f.normilizePath(name)
 	inode, ok := f.inodes[name]
 	if !ok {
-		return MakeWrappedError("Truncate", name, os.ErrNotExist, "")
+		return MakeWrappedError("Truncate", name, os.ErrNotExist)
 	}
 	if !inode.hasWritePerm() {
-		return MakeWrappedError("Truncate", name, os.ErrPermission, "file does not have write perm")
+		return MakeWrappedError("Truncate", name, os.ErrPermission)
 	}
 	// TODO: check write permission
-	inode.buff = resizeSlice(inode.buff, int(size))
+	inode.buff = util.ResizeSlice(inode.buff, int(size))
 	clear(inode.buff[len(inode.buff):cap(inode.buff)])
 	return nil
 }
@@ -310,6 +326,7 @@ func (f *FakeFS) Release() {
 }
 
 func (f *FakeFS) Stat(name string) (os.FileInfo, error) {
+	name = f.normilizePath(name)
 	inode, ok := f.inodes[name]
 	if !ok {
 		return nil, os.ErrNotExist
@@ -348,7 +365,7 @@ func (f *FakeFS) getDirContent(path string) ([]*mockData, error) {
 	if path == "." {
 		path = f.workDir
 	}
-	
+
 	// TODO: check if have
 	var res []*mockData
 	for _, node := range f.inodes {
