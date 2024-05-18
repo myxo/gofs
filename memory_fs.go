@@ -14,8 +14,9 @@ import (
 )
 
 type FakeFS struct {
-	inodes  map[string]*mockData
-	workDir string
+	inodes          map[string]*mockData
+	workDir         string
+	trackDirtyPages bool
 }
 
 var _ FS = &FakeFS{}
@@ -34,6 +35,10 @@ func NewMemoryFs() *FakeFS {
 		fs:          fs,
 	}
 	return fs
+}
+
+func (f *FakeFS) TrackDirtyPages() {
+	f.trackDirtyPages = true
 }
 
 func (f *FakeFS) Create(path string) (*File, error) {
@@ -219,7 +224,7 @@ func (f *FakeFS) ReadDir(name string) ([]os.DirEntry, error) {
 	defer fp.Close()
 
 	dirs, err := fp.ReadDir(-1)
-	slices.SortFunc(dirs, func (a os.DirEntry, b os.DirEntry) int { return cmp.Compare(a.Name(), b.Name())})
+	slices.SortFunc(dirs, func(a os.DirEntry, b os.DirEntry) int { return cmp.Compare(a.Name(), b.Name()) })
 	return dirs, err
 }
 

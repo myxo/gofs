@@ -378,8 +378,17 @@ func (f *FakeFile) pwrite(b []byte, off int64) (n int, err error) {
 	}
 	n = copy(f.data.buff[off:], b)
 
-	//f.data.dyrtyPages = append(f.data.dyrtyPages, interval{from: off, to: off + int64(n)})
+	f.appendDirtyPage(off, off+int64(n))
 	return n, nil
+}
+
+func (f *FakeFile) appendDirtyPage(from int64, to int64) {
+	if !f.data.fs.trackDirtyPages {
+		return
+	}
+
+	// TODO: want to add some optimization to less allocation (e.g. for situation then we write sequentially)
+	f.data.dyrtyPages = append(f.data.dyrtyPages, interval{from: from, to: to})
 }
 
 func (f *FakeFile) WriteString(s string) (n int, err error) {
