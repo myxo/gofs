@@ -53,12 +53,6 @@ type mockData struct {
 	dyrtyPages  []interval // well... it's not exactly pages...
 }
 
-// TODO: do I use this?
-type Entry interface {
-	os.FileInfo
-	os.DirEntry
-}
-
 func (m *mockData) reset() {
 	clear(m.buff[:cap(m.buff)]) // Zero all elements
 	m.buff = m.buff[:0]

@@ -9,7 +9,6 @@ import (
 type FS interface {
 	Create(name string) (*File, error)
 	CreateTemp(dir, pattern string) (*File, error)
-	// NewFile(fd uintptr, name string) *File // TODO: ???
 	Open(name string) (*File, error)
 	OpenFile(name string, flag int, perm os.FileMode) (*File, error)
 	Chdir(dir string) error
@@ -67,7 +66,8 @@ func (f *File) Chown(uid, gid int) error {
 	if f.osFile != nil {
 		return f.osFile.Chown(uid, gid)
 	}
-	panic("todo")
+	// fs ownership is not implemented
+	return nil
 }
 
 func (f *File) Close() error {

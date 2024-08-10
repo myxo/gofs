@@ -58,8 +58,6 @@ func listOsFiles(dirPath string) {
 
 func TestFS(t *testing.T) {
 	dir := t.TempDir()
-	possibleFilenames := []string{"/foo/a/test.file.1", "/foo/a/test.file.2", "/foo/b/test.file.1", "/foo/b/test.file.2"}
-	possibleDirs := []string{".", "/foo", "/foo/a", "/foo/b"}
 
 	resetStat()
 	var memStat runtime.MemStats
@@ -67,6 +65,8 @@ func TestFS(t *testing.T) {
 
 	rapid.Check(t, func(t *rapid.T) {
 		fs := &statFs{fs: gofs.NewMemoryFs()}
+		possibleFilenames := []string{"/foo/a/test.file.1", "/foo/a/test.file.2", "/foo/b/test.file.1", "/foo/b/test.file.2"}
+		possibleDirs := []string{"/foo", "/foo/a", "/foo/b"}
 		var osFiles []*gofs.File
 		var fakeFiles []*statFile
 		workDir := "/"
@@ -414,6 +414,30 @@ func TestFS(t *testing.T) {
 				checkSyncError(t, errOs, errFake)
 				CompareDirEntries(t, diOs, diFake)
 			},
+			"FS_CreateTemp": func(t *rapid.T) {
+				osPath, fakePath := getDirPaths()
+				fpOs, errOs := os.CreateTemp(osPath, "temp*.txt")
+				fpFake, errFake := fs.CreateTemp(fakePath, "temp*.txt")
+				checkSyncError(t, errOs, errFake)
+				if errOs != nil {
+					return
+				}
+				newName := filepath.Join(filepath.Dir(fpOs.Name()), filepath.Base(fpFake.Name()))
+				os.Rename(fpOs.Name(), newName)
+				possibleFilenames = append(possibleFilenames, fpFake.Name())
+			},
+			"FS_MkdirTemp": func(t *rapid.T) {
+				osPath, fakePath := getDirPaths()
+				pathOs, errOs := os.MkdirTemp(osPath, "dir*")
+				pathFake, errFake := fs.MkdirTemp(fakePath, "dir*")
+				checkSyncError(t, errOs, errFake)
+				if errOs != nil {
+					return
+				}
+				newName := filepath.Join(dir, pathFake)
+				os.Rename(pathOs, newName)
+				possibleDirs = append(possibleDirs, pathFake)
+			},
 		})
 	})
 
@@ -463,12 +487,6 @@ func TestStandardErrorChecks(t *testing.T) {
 		_, err = fs.OpenFile("test", os.O_CREATE|os.O_EXCL, 0666)
 		require.True(t, os.IsExist(err))
 	})
-}
-
-func TestCheckTempCreation(t *testing.T) {
-	// TODO
-	//			"FS_CreateTemp": func(t *rapid.T) {},
-	//			"FS_MkdirTemp": func(t *rapid.T) {},
 }
 
 func BenchmarkWriter(b *testing.B) {

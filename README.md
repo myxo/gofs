@@ -13,7 +13,6 @@ TODO:
 - [ ] O_APPEND
 - [ ] Fallocate?
 - [ ] copy paste docs from orig functions
-- [ ] Test relative paths
 - [ ] add mode there instead on std error we get stacktrace inside error?
 - [ ] add thread safe fs?
 - [ ] add benchmark to track allocation
