@@ -2,6 +2,7 @@ package gofs
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -9,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/myxo/gofs/internal/util"
 )
@@ -45,8 +48,47 @@ func (f *FakeFS) Create(path string) (*File, error) {
 	return f.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 }
 
+// prefixAndSuffix splits pattern by the last wildcard "*", if applicable,
+// returning prefix as the part before "*" and suffix as the part after "*".
+func prefixAndSuffix(pattern string) (prefix, suffix string, err error) {
+	for i := 0; i < len(pattern); i++ {
+		if os.IsPathSeparator(pattern[i]) {
+			return "", "", errors.New("pattern contains path separator")
+		}
+	}
+	if pos := strings.LastIndexByte(pattern, '*'); pos != -1 {
+		prefix, suffix = pattern[:pos], pattern[pos+1:]
+	} else {
+		prefix = pattern
+	}
+	return prefix, suffix, nil
+}
+
 func (f *FakeFS) CreateTemp(dir, pattern string) (*File, error) {
-	panic("todo")
+	if dir == "" {
+		dir = rootDir
+	}
+
+	prefix, suffix, err := prefixAndSuffix(pattern)
+	if err != nil {
+		return nil, MakeWrappedError("CreateTemp", pattern, err)
+	}
+	prefix = filepath.Join(dir, prefix)
+
+	try := 0
+	for {
+		random := strconv.Itoa(int(rand.Int31()))
+		name := prefix + random + suffix
+		// TODO: we have all keys in map, so we may optimize
+		f, err := f.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
+		if os.IsExist(err) {
+			if try++; try < 10000 {
+				continue
+			}
+			return nil, MakeWrappedError("CreateTemp", pattern+"*"+suffix, os.ErrExist)
+		}
+		return f, err
+	}
 }
 
 func (f *FakeFS) Open(name string) (*File, error) {
@@ -145,14 +187,17 @@ func (f *FakeFS) Chmod(name string, mode os.FileMode) error {
 	return nil
 }
 
-func (f *FakeFS) Chown(name string, uid, gid int) error { panic("TODO") }
+func (f *FakeFS) Chown(name string, uid, gid int) error {
+	// fs ownership is not implemented
+	return nil
+}
 
 func (f *FakeFS) Mkdir(name string, perm os.FileMode) error {
 	name = f.normilizePath(name)
 	parentPath := filepath.Dir(name)
 	parent, parentExist := f.inodes[parentPath]
 	if !parentExist || !parent.isDirectory {
-		return MakeError("Mkdir", name, "parent path does not exist")
+		return MakeWrappedError("Mkdir", name, os.ErrNotExist)
 	}
 
 	if _, exist := f.inodes[name]; exist {
@@ -204,7 +249,39 @@ func (f *FakeFS) MkdirAll(path string, perm os.FileMode) error {
 	return nil
 }
 
-func (f *FakeFS) MkdirTemp(dir, pattern string) (string, error) { panic("TODO") }
+func (f *FakeFS) MkdirTemp(dir, pattern string) (string, error) {
+	if dir == "" {
+		dir = rootDir
+	}
+
+	prefix, suffix, err := prefixAndSuffix(pattern)
+	if err != nil {
+		return "", MakeWrappedError("MkdirTemp", pattern, err)
+	}
+	prefix = filepath.Join(dir, prefix)
+
+	try := 0
+	for {
+		random := strconv.Itoa(int(rand.Int31()))
+		name := prefix + random + suffix
+		err := f.Mkdir(name, 0700)
+		if err == nil {
+			return name, nil
+		}
+		if os.IsExist(err) {
+			if try++; try < 10000 {
+				continue
+			}
+			return "", MakeWrappedError("CreateTemp", pattern+"*"+suffix, os.ErrExist)
+		}
+		if os.IsNotExist(err) {
+			if _, err := f.Stat(dir); os.IsNotExist(err) {
+				return "", err
+			}
+		}
+		return "", err
+	}
+}
 
 func (f *FakeFS) ReadFile(name string) ([]byte, error) {
 	fp, err := f.Open(name)
