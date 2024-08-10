@@ -16,18 +16,16 @@ import (
 	"github.com/myxo/gofs/internal/util"
 )
 
-type FakeFS struct {
+type InMemoryFS struct {
 	inodes          map[string]*mockData
 	workDir         string
 	trackDirtyPages bool
 }
 
-var _ FS = &FakeFS{}
-
 const rootDir = "/"
 
-func NewMemoryFs() *FakeFS {
-	fs := &FakeFS{
+func NewMemoryFs() *InMemoryFS {
+	fs := &InMemoryFS{
 		inodes:  map[string]*mockData{},
 		workDir: rootDir,
 	}
@@ -40,11 +38,11 @@ func NewMemoryFs() *FakeFS {
 	return fs
 }
 
-func (f *FakeFS) TrackDirtyPages() {
+func (f *InMemoryFS) TrackDirtyPages() {
 	f.trackDirtyPages = true
 }
 
-func (f *FakeFS) Create(path string) (*File, error) {
+func (f *InMemoryFS) Create(path string) (*File, error) {
 	return f.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 }
 
@@ -64,7 +62,7 @@ func prefixAndSuffix(pattern string) (prefix, suffix string, err error) {
 	return prefix, suffix, nil
 }
 
-func (f *FakeFS) CreateTemp(dir, pattern string) (*File, error) {
+func (f *InMemoryFS) CreateTemp(dir, pattern string) (*File, error) {
 	if dir == "" {
 		dir = rootDir
 	}
@@ -91,7 +89,7 @@ func (f *FakeFS) CreateTemp(dir, pattern string) (*File, error) {
 	}
 }
 
-func (f *FakeFS) Open(name string) (*File, error) {
+func (f *InMemoryFS) Open(name string) (*File, error) {
 	return f.OpenFile(name, os.O_RDONLY, 0)
 }
 
@@ -105,7 +103,7 @@ func checkOpenPerm(flag int, inode *mockData) error {
 	return nil
 }
 
-func (f *FakeFS) normilizePath(path string) string {
+func (f *InMemoryFS) normilizePath(path string) string {
 	path = filepath.Clean(path)
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(f.workDir, path)
@@ -113,7 +111,7 @@ func (f *FakeFS) normilizePath(path string) string {
 	return path
 }
 
-func (f *FakeFS) OpenFile(name string, flag int, perm os.FileMode) (*File, error) {
+func (f *InMemoryFS) OpenFile(name string, flag int, perm os.FileMode) (*File, error) {
 	name = f.normilizePath(name)
 	dirPath := filepath.Dir(name)
 	dir, dirExist := f.inodes[dirPath]
@@ -163,7 +161,7 @@ func (f *FakeFS) OpenFile(name string, flag int, perm os.FileMode) (*File, error
 	}, nil
 }
 
-func (f *FakeFS) Chdir(dir string) error {
+func (f *InMemoryFS) Chdir(dir string) error {
 	dir = f.normilizePath(dir)
 	inode, ok := f.inodes[dir]
 	if !ok {
@@ -177,7 +175,7 @@ func (f *FakeFS) Chdir(dir string) error {
 	return nil
 }
 
-func (f *FakeFS) Chmod(name string, mode os.FileMode) error {
+func (f *InMemoryFS) Chmod(name string, mode os.FileMode) error {
 	name = f.normilizePath(name)
 	inode, ok := f.inodes[name]
 	if !ok {
@@ -187,12 +185,12 @@ func (f *FakeFS) Chmod(name string, mode os.FileMode) error {
 	return nil
 }
 
-func (f *FakeFS) Chown(name string, uid, gid int) error {
+func (f *InMemoryFS) Chown(name string, uid, gid int) error {
 	// fs ownership is not implemented
 	return nil
 }
 
-func (f *FakeFS) Mkdir(name string, perm os.FileMode) error {
+func (f *InMemoryFS) Mkdir(name string, perm os.FileMode) error {
 	name = f.normilizePath(name)
 	parentPath := filepath.Dir(name)
 	parent, parentExist := f.inodes[parentPath]
@@ -215,7 +213,7 @@ func (f *FakeFS) Mkdir(name string, perm os.FileMode) error {
 	return nil
 }
 
-func (f *FakeFS) MkdirAll(path string, perm os.FileMode) error {
+func (f *InMemoryFS) MkdirAll(path string, perm os.FileMode) error {
 	parentPath := filepath.Dir(path)
 	if parentPath == "." {
 		// TODO: check if we catch this if in test
@@ -249,7 +247,7 @@ func (f *FakeFS) MkdirAll(path string, perm os.FileMode) error {
 	return nil
 }
 
-func (f *FakeFS) MkdirTemp(dir, pattern string) (string, error) {
+func (f *InMemoryFS) MkdirTemp(dir, pattern string) (string, error) {
 	if dir == "" {
 		dir = rootDir
 	}
@@ -283,7 +281,7 @@ func (f *FakeFS) MkdirTemp(dir, pattern string) (string, error) {
 	}
 }
 
-func (f *FakeFS) ReadFile(name string) ([]byte, error) {
+func (f *InMemoryFS) ReadFile(name string) ([]byte, error) {
 	fp, err := f.Open(name)
 	if err != nil {
 		return nil, err
@@ -293,7 +291,7 @@ func (f *FakeFS) ReadFile(name string) ([]byte, error) {
 	return io.ReadAll(fp)
 }
 
-func (f *FakeFS) ReadDir(name string) ([]os.DirEntry, error) {
+func (f *InMemoryFS) ReadDir(name string) ([]os.DirEntry, error) {
 	fp, err := f.Open(name)
 	if err != nil {
 		return nil, err
@@ -305,17 +303,17 @@ func (f *FakeFS) ReadDir(name string) ([]os.DirEntry, error) {
 	return dirs, err
 }
 
-func (f *FakeFS) Readlink(name string) (string, error) { panic("TODO") }
+func (f *InMemoryFS) Readlink(name string) (string, error) { panic("TODO") }
 
-func (f *FakeFS) Remove(name string) error {
+func (f *InMemoryFS) Remove(name string) error {
 	return f.remove(name, false)
 }
 
-func (f *FakeFS) RemoveAll(path string) error {
+func (f *InMemoryFS) RemoveAll(path string) error {
 	return f.remove(path, true)
 }
 
-func (f *FakeFS) remove(name string, all bool) error {
+func (f *InMemoryFS) remove(name string, all bool) error {
 	name = f.normilizePath(name)
 	inode, ok := f.inodes[name]
 	if !ok {
@@ -344,7 +342,7 @@ func (f *FakeFS) remove(name string, all bool) error {
 
 }
 
-func (f *FakeFS) Rename(oldpath, newpath string) error {
+func (f *InMemoryFS) Rename(oldpath, newpath string) error {
 	oldpath = f.normilizePath(oldpath)
 	newpath = f.normilizePath(newpath)
 	inode, ok := f.inodes[oldpath]
@@ -369,7 +367,7 @@ func (f *FakeFS) Rename(oldpath, newpath string) error {
 	return nil
 }
 
-func (f *FakeFS) Truncate(name string, size int64) error {
+func (f *InMemoryFS) Truncate(name string, size int64) error {
 	name = f.normilizePath(name)
 	inode, ok := f.inodes[name]
 	if !ok {
@@ -384,7 +382,7 @@ func (f *FakeFS) Truncate(name string, size int64) error {
 	return nil
 }
 
-func (f *FakeFS) WriteFile(name string, data []byte, perm os.FileMode) error {
+func (f *InMemoryFS) WriteFile(name string, data []byte, perm os.FileMode) error {
 	fp, err := f.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
 		return err
@@ -398,7 +396,7 @@ func (f *FakeFS) WriteFile(name string, data []byte, perm os.FileMode) error {
 
 // Release return all memory to pool and clear file map. All File structs should be destroyed by this moment,
 // accessing them is UB. This function is useful, for example in end of a test
-func (f *FakeFS) Release() {
+func (f *InMemoryFS) Release() {
 	for _, v := range f.inodes {
 		if v != nil {
 			filePool.Put(v)
@@ -407,7 +405,7 @@ func (f *FakeFS) Release() {
 	clear(f.inodes)
 }
 
-func (f *FakeFS) Stat(name string) (os.FileInfo, error) {
+func (f *InMemoryFS) Stat(name string) (os.FileInfo, error) {
 	name = f.normilizePath(name)
 	inode, ok := f.inodes[name]
 	if !ok {
@@ -419,7 +417,7 @@ func (f *FakeFS) Stat(name string) (os.FileInfo, error) {
 }
 
 // This function will probably changed by v1.0
-func (f *FakeFS) CorruptFile(path string, offset int64) error {
+func (f *InMemoryFS) CorruptFile(path string, offset int64) error {
 	fp, ok := f.inodes[path]
 	if !ok {
 		return os.ErrNotExist
@@ -432,7 +430,7 @@ func (f *FakeFS) CorruptFile(path string, offset int64) error {
 }
 
 // This function will probably changed by v1.0
-func (f *FakeFS) CorruptDirtyPages(seedRand *rand.Rand) {
+func (f *InMemoryFS) CorruptDirtyPages(seedRand *rand.Rand) {
 	for _, data := range f.inodes {
 		for _, dirtyInterval := range data.dyrtyPages {
 			flipByte := seedRand.Int63n(dirtyInterval.to-dirtyInterval.from) + dirtyInterval.from
@@ -443,7 +441,7 @@ func (f *FakeFS) CorruptDirtyPages(seedRand *rand.Rand) {
 	}
 }
 
-func (f *FakeFS) getDirContent(path string) ([]*mockData, error) {
+func (f *InMemoryFS) getDirContent(path string) ([]*mockData, error) {
 	if path == "." {
 		path = f.workDir
 	}
