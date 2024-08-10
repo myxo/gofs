@@ -142,10 +142,8 @@ func (f *statFile) IsFake() bool {
 }
 
 type statFs struct {
-	fs *gofs.FakeFS
+	fs *gofs.InMemoryFS
 }
-
-var _ gofs.FS = &statFs{}
 
 func (s *statFs) Create(name string) (*gofs.File, error) {
 	addStat("fs_Create")

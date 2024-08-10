@@ -47,7 +47,7 @@ type mockData struct {
 	buff        []byte
 	realName    string // this is synced with inodes map
 	isDirectory bool
-	fs          *FakeFS // TODO: move to FakeFile?
+	fs          *InMemoryFS // TODO: move to FakeFile?
 	parent      *mockData
 	perm        os.FileMode
 	dyrtyPages  []interval // well... it's not exactly pages...
