@@ -281,6 +281,11 @@ func (f *InMemoryFS) MkdirTemp(dir, pattern string) (string, error) {
 	}
 }
 
+func (f *InMemoryFS) TempDir() string {
+	f.MkdirAll("/tmp", 0777)
+	return "/tmp"
+}
+
 func (f *InMemoryFS) ReadFile(name string) ([]byte, error) {
 	fp, err := f.Open(name)
 	if err != nil {

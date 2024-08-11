@@ -84,6 +84,13 @@ func (f *FS) MkdirTemp(dir, pattern string) (string, error) {
 	return f.fakeFs.MkdirTemp(dir, pattern)
 }
 
+func (f *FS) TempDir() string {
+	if f.fakeFs == nil {
+		return os.TempDir()
+	}
+	return f.fakeFs.TempDir()
+}
+
 func (f *FS) ReadFile(name string) ([]byte, error) {
 	if f.fakeFs == nil {
 		return os.ReadFile(name)
