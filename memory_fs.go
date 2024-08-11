@@ -282,7 +282,7 @@ func (f *InMemoryFS) MkdirTemp(dir, pattern string) (string, error) {
 }
 
 func (f *InMemoryFS) TempDir() string {
-	f.MkdirAll("/tmp", 0777)
+	_ = f.MkdirAll("/tmp", 0777)
 	return "/tmp"
 }
 
