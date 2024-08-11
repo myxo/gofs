@@ -22,6 +22,8 @@ type InMemoryFS struct {
 	trackDirtyPages bool
 }
 
+var _ FS = &InMemoryFS{}
+
 const rootDir = "/"
 
 func NewMemoryFs() *InMemoryFS {

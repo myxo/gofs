@@ -145,6 +145,8 @@ type statFs struct {
 	fs *gofs.InMemoryFS
 }
 
+var _ gofs.FS = &statFs{}
+
 func (s *statFs) Create(name string) (*gofs.File, error) {
 	addStat("fs_Create")
 	return s.fs.Create(name)
@@ -193,6 +195,10 @@ func (s *statFs) MkdirAll(path string, perm os.FileMode) error {
 func (s *statFs) MkdirTemp(dir, pattern string) (string, error) {
 	addStat("fs_MkdirTemp")
 	return s.fs.MkdirTemp(dir, pattern)
+}
+
+func (s *statFs) TempDir() string {
+	return s.fs.TempDir()
 }
 
 func (s *statFs) ReadFile(name string) ([]byte, error) {

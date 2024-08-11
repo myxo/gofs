@@ -6,156 +6,27 @@ import (
 	"time"
 )
 
-type FS struct {
-	fakeFs *InMemoryFS
-}
-
-func OsFs() *FS {
-	return nil
-}
-
-func (f *FS) Create(name string) (*File, error) {
-	if f == nil || f.fakeFs == nil {
-		fp, err := os.Create(name)
-		return NewFromOs(fp), err
-	}
-	return f.fakeFs.Create(name)
-}
-
-func (f *FS) CreateTemp(dir, pattern string) (*File, error) {
-	if f == nil || f.fakeFs == nil {
-		fp, err := os.CreateTemp(dir, pattern)
-		return NewFromOs(fp), err
-	}
-	return f.fakeFs.CreateTemp(dir, pattern)
-}
-
-func (f *FS) Open(name string) (*File, error) {
-	if f == nil || f.fakeFs == nil {
-		fp, err := os.Open(name)
-		return NewFromOs(fp), err
-	}
-	return f.fakeFs.Open(name)
-}
-
-func (f *FS) OpenFile(name string, flag int, perm os.FileMode) (*File, error) {
-	if f == nil || f.fakeFs == nil {
-		fp, err := os.OpenFile(name, flag, perm)
-		return NewFromOs(fp), err
-	}
-	return f.fakeFs.OpenFile(name, flag, perm)
-}
-
-func (f *FS) Chdir(dir string) error {
-	if f == nil || f.fakeFs == nil {
-		return os.Chdir(dir)
-	}
-	return f.fakeFs.Chdir(dir)
-}
-
-func (f *FS) Chmod(name string, mode os.FileMode) error {
-	if f == nil || f.fakeFs == nil {
-		return os.Chmod(name, mode)
-	}
-	return f.fakeFs.Chmod(name, mode)
-}
-
-func (f *FS) Chown(name string, uid, gid int) error {
-	if f == nil || f.fakeFs == nil {
-		return os.Chown(name, uid, gid)
-	}
-	return f.fakeFs.Chown(name, uid, gid)
-}
-
-func (f *FS) Mkdir(name string, perm os.FileMode) error {
-	if f == nil || f.fakeFs == nil {
-		return os.Mkdir(name, perm)
-	}
-	return f.fakeFs.Mkdir(name, perm)
-}
-
-func (f *FS) MkdirAll(path string, perm os.FileMode) error {
-	if f == nil || f.fakeFs == nil {
-		return os.MkdirAll(path, perm)
-	}
-	return f.fakeFs.MkdirAll(path, perm)
-}
-
-func (f *FS) MkdirTemp(dir, pattern string) (string, error) {
-	if f == nil || f.fakeFs == nil {
-		return os.MkdirTemp(dir, pattern)
-	}
-	return f.fakeFs.MkdirTemp(dir, pattern)
-}
-
-func (f *FS) TempDir() string {
-	if f == nil || f.fakeFs == nil {
-		return os.TempDir()
-	}
-	return f.fakeFs.TempDir()
-}
-
-func (f *FS) ReadFile(name string) ([]byte, error) {
-	if f == nil || f.fakeFs == nil {
-		return os.ReadFile(name)
-	}
-	return f.fakeFs.ReadFile(name)
-}
-
-func (f *FS) Readlink(name string) (string, error) {
-	if f == nil || f.fakeFs == nil {
-		return os.Readlink(name)
-	}
-	return f.fakeFs.Readlink(name)
-}
-
-func (f *FS) Remove(name string) error {
-	if f == nil || f.fakeFs == nil {
-		return os.Remove(name)
-	}
-	return f.fakeFs.Remove(name)
-}
-
-func (f *FS) RemoveAll(path string) error {
-	if f == nil || f.fakeFs == nil {
-		return os.RemoveAll(path)
-	}
-	return f.fakeFs.RemoveAll(path)
-}
-
-func (f *FS) Rename(oldpath, newpath string) error {
-	if f == nil || f.fakeFs == nil {
-		return os.Rename(oldpath, newpath)
-	}
-	return f.fakeFs.Rename(oldpath, newpath)
-}
-
-func (f *FS) Truncate(name string, size int64) error {
-	if f == nil || f.fakeFs == nil {
-		return os.Truncate(name, size)
-	}
-	return f.fakeFs.Truncate(name, size)
-}
-
-func (f *FS) WriteFile(name string, data []byte, perm os.FileMode) error {
-	if f == nil || f.fakeFs == nil {
-		return os.WriteFile(name, data, perm)
-	}
-	return f.fakeFs.WriteFile(name, data, perm)
-}
-
-func (f *FS) ReadDir(name string) ([]os.DirEntry, error) {
-	if f == nil || f.fakeFs == nil {
-		return os.ReadDir(name)
-	}
-	return f.fakeFs.ReadDir(name)
-}
-
-func (f *FS) Stat(name string) (os.FileInfo, error) {
-	if f == nil || f.fakeFs == nil {
-		return os.Stat(name)
-	}
-	return f.fakeFs.Stat(name)
+type FS interface {
+	Create(name string) (*File, error)
+	CreateTemp(dir, pattern string) (*File, error)
+	Open(name string) (*File, error)
+	OpenFile(name string, flag int, perm os.FileMode) (*File, error)
+	Chdir(dir string) error
+	Chmod(name string, mode os.FileMode) error
+	Chown(name string, uid, gid int) error
+	Mkdir(name string, perm os.FileMode) error
+	MkdirAll(path string, perm os.FileMode) error
+	MkdirTemp(dir, pattern string) (string, error)
+	TempDir() string
+	ReadFile(name string) ([]byte, error)
+	Readlink(name string) (string, error)
+	ReadDir(name string) ([]os.DirEntry, error)
+	Remove(name string) error
+	RemoveAll(path string) error
+	Rename(oldpath, newpath string) error
+	Truncate(name string, size int64) error
+	WriteFile(name string, data []byte, perm os.FileMode) error
+	Stat(name string) (os.FileInfo, error)
 }
 
 type File struct {
@@ -341,4 +212,96 @@ func (f *File) SetWriteDeadline(t time.Time) error {
 	}
 	// noop
 	return nil
+}
+
+type osFs struct{}
+
+var _ FS = &osFs{}
+
+func OsFs() FS {
+	return &osFs{}
+}
+
+func (osFs) Create(name string) (*File, error) {
+	fp, err := os.Create(name)
+	return NewFromOs(fp), err
+}
+
+func (osFs) CreateTemp(dir, pattern string) (*File, error) {
+	fp, err := os.CreateTemp(dir, pattern)
+	return NewFromOs(fp), err
+}
+
+func (osFs) Open(name string) (*File, error) {
+	fp, err := os.Open(name)
+	return NewFromOs(fp), err
+}
+
+func (osFs) OpenFile(name string, flag int, perm os.FileMode) (*File, error) {
+	fp, err := os.OpenFile(name, flag, perm)
+	return NewFromOs(fp), err
+}
+
+func (osFs) Chdir(dir string) error {
+	return os.Chdir(dir)
+}
+
+func (osFs) Chmod(name string, mode os.FileMode) error {
+	return os.Chmod(name, mode)
+}
+
+func (osFs) Chown(name string, uid, gid int) error {
+	return os.Chown(name, uid, gid)
+}
+
+func (osFs) Mkdir(name string, perm os.FileMode) error {
+	return os.Mkdir(name, perm)
+}
+
+func (osFs) MkdirAll(path string, perm os.FileMode) error {
+	return os.MkdirAll(path, perm)
+}
+
+func (osFs) MkdirTemp(dir, pattern string) (string, error) {
+	return os.MkdirTemp(dir, pattern)
+}
+
+func (osFs) TempDir() string {
+	return os.TempDir()
+}
+
+func (osFs) ReadFile(name string) ([]byte, error) {
+	return os.ReadFile(name)
+}
+
+func (osFs) Readlink(name string) (string, error) {
+	return os.Readlink(name)
+}
+
+func (osFs) Remove(name string) error {
+	return os.Remove(name)
+}
+
+func (osFs) RemoveAll(path string) error {
+	return os.RemoveAll(path)
+}
+
+func (osFs) Rename(oldpath, newpath string) error {
+	return os.Rename(oldpath, newpath)
+}
+
+func (osFs) Truncate(name string, size int64) error {
+	return os.Truncate(name, size)
+}
+
+func (osFs) WriteFile(name string, data []byte, perm os.FileMode) error {
+	return os.WriteFile(name, data, perm)
+}
+
+func (osFs) ReadDir(name string) ([]os.DirEntry, error) {
+	return os.ReadDir(name)
+}
+
+func (osFs) Stat(name string) (os.FileInfo, error) {
+	return os.Stat(name)
 }
