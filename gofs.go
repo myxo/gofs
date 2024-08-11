@@ -7,7 +7,7 @@ import (
 )
 
 type FS struct {
-	fakeFs *InMemoryFS
+	FakeFs *InMemoryFS
 }
 
 func OsFs() *FS {
@@ -15,147 +15,147 @@ func OsFs() *FS {
 }
 
 func (f *FS) Create(name string) (*File, error) {
-	if f == nil || f.fakeFs == nil {
+	if f == nil || f.FakeFs == nil {
 		fp, err := os.Create(name)
 		return NewFromOs(fp), err
 	}
-	return f.fakeFs.Create(name)
+	return f.FakeFs.Create(name)
 }
 
 func (f *FS) CreateTemp(dir, pattern string) (*File, error) {
-	if f == nil || f.fakeFs == nil {
+	if f == nil || f.FakeFs == nil {
 		fp, err := os.CreateTemp(dir, pattern)
 		return NewFromOs(fp), err
 	}
-	return f.fakeFs.CreateTemp(dir, pattern)
+	return f.FakeFs.CreateTemp(dir, pattern)
 }
 
 func (f *FS) Open(name string) (*File, error) {
-	if f == nil || f.fakeFs == nil {
+	if f == nil || f.FakeFs == nil {
 		fp, err := os.Open(name)
 		return NewFromOs(fp), err
 	}
-	return f.fakeFs.Open(name)
+	return f.FakeFs.Open(name)
 }
 
 func (f *FS) OpenFile(name string, flag int, perm os.FileMode) (*File, error) {
-	if f == nil || f.fakeFs == nil {
+	if f == nil || f.FakeFs == nil {
 		fp, err := os.OpenFile(name, flag, perm)
 		return NewFromOs(fp), err
 	}
-	return f.fakeFs.OpenFile(name, flag, perm)
+	return f.FakeFs.OpenFile(name, flag, perm)
 }
 
 func (f *FS) Chdir(dir string) error {
-	if f == nil || f.fakeFs == nil {
+	if f == nil || f.FakeFs == nil {
 		return os.Chdir(dir)
 	}
-	return f.fakeFs.Chdir(dir)
+	return f.FakeFs.Chdir(dir)
 }
 
 func (f *FS) Chmod(name string, mode os.FileMode) error {
-	if f == nil || f.fakeFs == nil {
+	if f == nil || f.FakeFs == nil {
 		return os.Chmod(name, mode)
 	}
-	return f.fakeFs.Chmod(name, mode)
+	return f.FakeFs.Chmod(name, mode)
 }
 
 func (f *FS) Chown(name string, uid, gid int) error {
-	if f == nil || f.fakeFs == nil {
+	if f == nil || f.FakeFs == nil {
 		return os.Chown(name, uid, gid)
 	}
-	return f.fakeFs.Chown(name, uid, gid)
+	return f.FakeFs.Chown(name, uid, gid)
 }
 
 func (f *FS) Mkdir(name string, perm os.FileMode) error {
-	if f == nil || f.fakeFs == nil {
+	if f == nil || f.FakeFs == nil {
 		return os.Mkdir(name, perm)
 	}
-	return f.fakeFs.Mkdir(name, perm)
+	return f.FakeFs.Mkdir(name, perm)
 }
 
 func (f *FS) MkdirAll(path string, perm os.FileMode) error {
-	if f == nil || f.fakeFs == nil {
+	if f == nil || f.FakeFs == nil {
 		return os.MkdirAll(path, perm)
 	}
-	return f.fakeFs.MkdirAll(path, perm)
+	return f.FakeFs.MkdirAll(path, perm)
 }
 
 func (f *FS) MkdirTemp(dir, pattern string) (string, error) {
-	if f == nil || f.fakeFs == nil {
+	if f == nil || f.FakeFs == nil {
 		return os.MkdirTemp(dir, pattern)
 	}
-	return f.fakeFs.MkdirTemp(dir, pattern)
+	return f.FakeFs.MkdirTemp(dir, pattern)
 }
 
 func (f *FS) TempDir() string {
-	if f == nil || f.fakeFs == nil {
+	if f == nil || f.FakeFs == nil {
 		return os.TempDir()
 	}
-	return f.fakeFs.TempDir()
+	return f.FakeFs.TempDir()
 }
 
 func (f *FS) ReadFile(name string) ([]byte, error) {
-	if f == nil || f.fakeFs == nil {
+	if f == nil || f.FakeFs == nil {
 		return os.ReadFile(name)
 	}
-	return f.fakeFs.ReadFile(name)
+	return f.FakeFs.ReadFile(name)
 }
 
 func (f *FS) Readlink(name string) (string, error) {
-	if f == nil || f.fakeFs == nil {
+	if f == nil || f.FakeFs == nil {
 		return os.Readlink(name)
 	}
-	return f.fakeFs.Readlink(name)
+	return f.FakeFs.Readlink(name)
 }
 
 func (f *FS) Remove(name string) error {
-	if f == nil || f.fakeFs == nil {
+	if f == nil || f.FakeFs == nil {
 		return os.Remove(name)
 	}
-	return f.fakeFs.Remove(name)
+	return f.FakeFs.Remove(name)
 }
 
 func (f *FS) RemoveAll(path string) error {
-	if f == nil || f.fakeFs == nil {
+	if f == nil || f.FakeFs == nil {
 		return os.RemoveAll(path)
 	}
-	return f.fakeFs.RemoveAll(path)
+	return f.FakeFs.RemoveAll(path)
 }
 
 func (f *FS) Rename(oldpath, newpath string) error {
-	if f == nil || f.fakeFs == nil {
+	if f == nil || f.FakeFs == nil {
 		return os.Rename(oldpath, newpath)
 	}
-	return f.fakeFs.Rename(oldpath, newpath)
+	return f.FakeFs.Rename(oldpath, newpath)
 }
 
 func (f *FS) Truncate(name string, size int64) error {
-	if f == nil || f.fakeFs == nil {
+	if f == nil || f.FakeFs == nil {
 		return os.Truncate(name, size)
 	}
-	return f.fakeFs.Truncate(name, size)
+	return f.FakeFs.Truncate(name, size)
 }
 
 func (f *FS) WriteFile(name string, data []byte, perm os.FileMode) error {
-	if f == nil || f.fakeFs == nil {
+	if f == nil || f.FakeFs == nil {
 		return os.WriteFile(name, data, perm)
 	}
-	return f.fakeFs.WriteFile(name, data, perm)
+	return f.FakeFs.WriteFile(name, data, perm)
 }
 
 func (f *FS) ReadDir(name string) ([]os.DirEntry, error) {
-	if f == nil || f.fakeFs == nil {
+	if f == nil || f.FakeFs == nil {
 		return os.ReadDir(name)
 	}
-	return f.fakeFs.ReadDir(name)
+	return f.FakeFs.ReadDir(name)
 }
 
 func (f *FS) Stat(name string) (os.FileInfo, error) {
-	if f == nil || f.fakeFs == nil {
+	if f == nil || f.FakeFs == nil {
 		return os.Stat(name)
 	}
-	return f.fakeFs.Stat(name)
+	return f.FakeFs.Stat(name)
 }
 
 type File struct {
