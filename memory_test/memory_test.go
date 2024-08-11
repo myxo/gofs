@@ -423,7 +423,8 @@ func TestFS(t *testing.T) {
 					return
 				}
 				newName := filepath.Join(filepath.Dir(fpOs.Name()), filepath.Base(fpFake.Name()))
-				os.Rename(fpOs.Name(), newName)
+				err := os.Rename(fpOs.Name(), newName)
+				require.NoError(t, err)
 				possibleFilenames = append(possibleFilenames, fpFake.Name())
 			},
 			"FS_MkdirTemp": func(t *rapid.T) {
@@ -435,7 +436,8 @@ func TestFS(t *testing.T) {
 					return
 				}
 				newName := filepath.Join(dir, pathFake)
-				os.Rename(pathOs, newName)
+				err := os.Rename(pathOs, newName)
+				require.NoError(t, err)
 				possibleDirs = append(possibleDirs, pathFake)
 			},
 		})
