@@ -490,37 +490,3 @@ func TestStandardErrorChecks(t *testing.T) {
 		require.True(t, os.IsExist(err))
 	})
 }
-
-func BenchmarkWriter(b *testing.B) {
-	fs := gofs.NewMemoryFs()
-	fp, err := fs.OpenFile("test", os.O_CREATE|os.O_EXCL|os.O_RDWR, 0666)
-	require.NoError(b, err)
-	buff := make([]byte, 25)
-	_, _ = rand.Read(buff)
-	b.Run("write", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			_, _ = fp.WriteAt(buff, 0)
-		}
-	})
-	b.Run("read", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			_, _ = fp.ReadAt(buff, 0)
-		}
-	})
-	b.Run("readDir", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			_, _ = fs.ReadDir("/")
-		}
-	})
-	fpRootDir, err := fs.Open("/")
-	require.NoError(b, err)
-	b.Run("readDir file", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			_, _ = fpRootDir.Readdir(-1)
-		}
-	})
-}
