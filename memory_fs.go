@@ -12,35 +12,51 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/myxo/gofs/internal/util"
 )
 
 type InMemoryFS struct {
-	inodes          map[string]*mockData
+	inodes          map[string]*memData
 	workDir         string
 	trackDirtyPages bool
+	threadSafeMode  bool
+	mu              sync.Mutex
 }
 
 var _ FS = &InMemoryFS{}
 
 const rootDir = "/"
 
+// NewMemoryFs create fake filesystem with gofs.FS interface
 func NewMemoryFs() *InMemoryFS {
-	fs := &InMemoryFS{
-		inodes:  map[string]*mockData{},
+	ret := &InMemoryFS{
+		inodes:  map[string]*memData{},
 		workDir: rootDir,
 	}
-	fs.inodes[rootDir] = &mockData{
+	ret.inodes[rootDir] = &memData{
 		realName:    rootDir,
 		isDirectory: true,
 		perm:        0666,
-		fs:          fs,
+		fs:          ret,
 	}
-	return fs
+	return ret
+}
+
+// NewThreadSafeMemoryFs create thread safe fake fs. It's a bit slower, but you can use it in multithreading tests with -race
+func NewThreadSafeMemoryFs() *InMemoryFS {
+	ret := NewMemoryFs()
+	ret.threadSafeMode = true
+	return ret
 }
 
 func (f *InMemoryFS) TrackDirtyPages() {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	f.trackDirtyPages = true
 }
 
@@ -95,7 +111,7 @@ func (f *InMemoryFS) Open(name string) (*File, error) {
 	return f.OpenFile(name, os.O_RDONLY, 0)
 }
 
-func checkOpenPerm(flag int, inode *mockData) error {
+func checkOpenPerm(flag int, inode *memData) error {
 	if util.HasWritePerm(flag) && !inode.hasWritePerm() {
 		return os.ErrPermission
 	}
@@ -114,6 +130,11 @@ func (f *InMemoryFS) normilizePath(path string) string {
 }
 
 func (f *InMemoryFS) OpenFile(name string, flag int, perm os.FileMode) (*File, error) {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	name = f.normilizePath(name)
 	dirPath := filepath.Dir(name)
 	dir, dirExist := f.inodes[dirPath]
@@ -126,7 +147,7 @@ func (f *InMemoryFS) OpenFile(name string, flag int, perm os.FileMode) (*File, e
 			return nil, MakeWrappedError("OpenFile", name, os.ErrNotExist)
 		}
 		// TODO: check directory perms
-		inode = filePool.Get().(*mockData)
+		inode = filePool.Get().(*memData)
 		inode.reset()
 		inode.realName = name
 		inode.perm = perm
@@ -156,14 +177,20 @@ func (f *InMemoryFS) OpenFile(name string, flag int, perm os.FileMode) (*File, e
 
 	return &File{
 		mockFile: &FakeFile{
-			name: name,
-			data: inode,
-			flag: flag,
+			name:           name,
+			data:           inode,
+			flag:           flag,
+			threadSafeMode: f.threadSafeMode,
 		},
 	}, nil
 }
 
 func (f *InMemoryFS) Chdir(dir string) error {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	dir = f.normilizePath(dir)
 	inode, ok := f.inodes[dir]
 	if !ok {
@@ -178,6 +205,11 @@ func (f *InMemoryFS) Chdir(dir string) error {
 }
 
 func (f *InMemoryFS) Chmod(name string, mode os.FileMode) error {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	name = f.normilizePath(name)
 	inode, ok := f.inodes[name]
 	if !ok {
@@ -193,6 +225,11 @@ func (f *InMemoryFS) Chown(name string, uid, gid int) error {
 }
 
 func (f *InMemoryFS) Mkdir(name string, perm os.FileMode) error {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	name = f.normilizePath(name)
 	parentPath := filepath.Dir(name)
 	parent, parentExist := f.inodes[parentPath]
@@ -204,7 +241,7 @@ func (f *InMemoryFS) Mkdir(name string, perm os.FileMode) error {
 		return MakeWrappedError("Mkdir", name, os.ErrExist)
 	}
 
-	inode := &mockData{
+	inode := &memData{
 		realName:    name,
 		isDirectory: true,
 		perm:        perm,
@@ -216,6 +253,11 @@ func (f *InMemoryFS) Mkdir(name string, perm os.FileMode) error {
 }
 
 func (f *InMemoryFS) MkdirAll(path string, perm os.FileMode) error {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	parentPath := filepath.Dir(path)
 	if parentPath == "." {
 		// TODO: check if we catch this if in test
@@ -238,7 +280,7 @@ func (f *InMemoryFS) MkdirAll(path string, perm os.FileMode) error {
 		return nil
 	}
 
-	inode := &mockData{
+	inode := &memData{
 		realName:    path,
 		isDirectory: true,
 		perm:        perm,
@@ -313,10 +355,20 @@ func (f *InMemoryFS) ReadDir(name string) ([]os.DirEntry, error) {
 func (f *InMemoryFS) Readlink(name string) (string, error) { panic("TODO") }
 
 func (f *InMemoryFS) Remove(name string) error {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	return f.remove(name, false)
 }
 
 func (f *InMemoryFS) RemoveAll(path string) error {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	return f.remove(path, true)
 }
 
@@ -350,6 +402,11 @@ func (f *InMemoryFS) remove(name string, all bool) error {
 }
 
 func (f *InMemoryFS) Rename(oldpath, newpath string) error {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	oldpath = f.normilizePath(oldpath)
 	newpath = f.normilizePath(newpath)
 	inode, ok := f.inodes[oldpath]
@@ -375,6 +432,11 @@ func (f *InMemoryFS) Rename(oldpath, newpath string) error {
 }
 
 func (f *InMemoryFS) Truncate(name string, size int64) error {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	name = f.normilizePath(name)
 	inode, ok := f.inodes[name]
 	if !ok {
@@ -404,6 +466,11 @@ func (f *InMemoryFS) WriteFile(name string, data []byte, perm os.FileMode) error
 // Release return all memory to pool and clear file map. All File structs should be destroyed by this moment,
 // accessing them is UB. This function is useful, for example in end of a test
 func (f *InMemoryFS) Release() {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	for _, v := range f.inodes {
 		if v != nil {
 			filePool.Put(v)
@@ -413,6 +480,11 @@ func (f *InMemoryFS) Release() {
 }
 
 func (f *InMemoryFS) Stat(name string) (os.FileInfo, error) {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	name = f.normilizePath(name)
 	inode, ok := f.inodes[name]
 	if !ok {
@@ -425,6 +497,11 @@ func (f *InMemoryFS) Stat(name string) (os.FileInfo, error) {
 
 // This function will probably changed by v1.0
 func (f *InMemoryFS) CorruptFile(path string, offset int64) error {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	fp, ok := f.inodes[path]
 	if !ok {
 		return os.ErrNotExist
@@ -438,8 +515,13 @@ func (f *InMemoryFS) CorruptFile(path string, offset int64) error {
 
 // This function will probably changed by v1.0
 func (f *InMemoryFS) CorruptDirtyPages(seedRand *rand.Rand) {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	for _, data := range f.inodes {
-		for _, dirtyInterval := range data.dyrtyPages {
+		for _, dirtyInterval := range data.dirtyPages {
 			flipByte := seedRand.Int63n(dirtyInterval.to-dirtyInterval.from) + dirtyInterval.from
 			if flipByte < int64(len(data.buff)) { // TODO: do I need this if?
 				data.buff[flipByte]++
@@ -448,13 +530,13 @@ func (f *InMemoryFS) CorruptDirtyPages(seedRand *rand.Rand) {
 	}
 }
 
-func (f *InMemoryFS) getDirContent(path string) ([]*mockData, error) {
+func (f *InMemoryFS) getDirContent(path string) ([]*memData, error) {
 	if path == "." {
 		path = f.workDir
 	}
 
 	// TODO: check if have
-	var res []*mockData
+	var res []*memData
 	for _, node := range f.inodes {
 		if node.parent == nil {
 			continue
