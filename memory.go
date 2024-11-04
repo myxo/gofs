@@ -34,7 +34,7 @@ func MakeWrappedError(op string, path string, err error) error {
 }
 
 var filePool = sync.Pool{New: func() any {
-	return &mockData{
+	return &memData{
 		buff: make([]byte, 0, 32*1024),
 	}
 }}
@@ -43,48 +43,56 @@ type interval struct {
 	from, to int64
 }
 
-type mockData struct {
+type memData struct {
 	buff        []byte
 	realName    string // this is synced with inodes map
 	isDirectory bool
 	fs          *InMemoryFS // TODO: move to FakeFile?
-	parent      *mockData
+	parent      *memData
 	perm        os.FileMode
-	dyrtyPages  []interval // well... it's not exactly pages...
+	dirtyPages  []interval // well... it's not exactly pages...
 }
 
-func (m *mockData) reset() {
+func (m *memData) reset() {
 	clear(m.buff[:cap(m.buff)]) // Zero all elements
 	m.buff = m.buff[:0]
 	m.perm = 0
 	m.isDirectory = false
 }
 
-func (m *mockData) Size() int64 {
+func (m *memData) Size() int64 {
 	return int64(len(m.buff))
 }
 
-func (m *mockData) hasWritePerm() bool {
+func (m *memData) hasWritePerm() bool {
 	const anyWritePerm = 0222
 	return m.perm&anyWritePerm != 0
 }
 
-func (m *mockData) hasReadPerm() bool {
+func (m *memData) hasReadPerm() bool {
 	const anyReadPerm = 0444
 	return m.perm&anyReadPerm != 0
 }
 
 // Kinda like descriptor
 type FakeFile struct {
-	data          *mockData
+	data          *memData
 	name          string
 	flag          int
 	cursor        int64
 	readDirSlice  []os.DirEntry // non empty only on directory iteration with ReadDir function
 	readDirSlice2 []os.FileInfo // non empty only on directory iteration with ReadDir function
+
+	mu             sync.Mutex
+	threadSafeMode bool
 }
 
 func (f *FakeFile) Chdir() error {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	if f.data == nil {
 		return os.ErrInvalid
 	}
@@ -95,6 +103,11 @@ func (f *FakeFile) Chdir() error {
 }
 
 func (f *FakeFile) Chmod(mode os.FileMode) error {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	if f.data == nil {
 		return os.ErrInvalid
 	}
@@ -105,12 +118,13 @@ func (f *FakeFile) Chmod(mode os.FileMode) error {
 func (f *FakeFile) Chown(uid, gid int) error { panic("todo") }
 
 func (f *FakeFile) Close() error {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	if f.data == nil {
 		return os.ErrInvalid
-	}
-	if err := f.Sync(); err != nil {
-		// TODO: should I release memory here?
-		return err
 	}
 	// cannot reset all variables, since go implementation does not do it
 	f.data = nil
@@ -120,16 +134,31 @@ func (f *FakeFile) Close() error {
 }
 
 func (f *FakeFile) Name() string {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	return f.name
 }
 
 func (f *FakeFile) Read(b []byte) (n int, err error) {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	n, err = f.pread(b, f.cursor)
 	f.cursor += int64(n)
 	return n, MakeWrappedError("Read", f.name, err)
 }
 
 func (f *FakeFile) ReadAt(b []byte, off int64) (n int, err error) {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	if off < 0 {
 		return 0, MakeError("ReadAt", f.name, "negative offset")
 	}
@@ -171,6 +200,11 @@ func (f *FakeFile) pread(b []byte, off int64) (n int, err error) {
 }
 
 func (f *FakeFile) ReadDir(n int) ([]os.DirEntry, error) {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	if f.data == nil {
 		return nil, os.ErrInvalid
 	}
@@ -198,6 +232,11 @@ func (f *FakeFile) ReadDir(n int) ([]os.DirEntry, error) {
 }
 
 func (f *FakeFile) Readdir(n int) ([]os.FileInfo, error) {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	if f.data == nil {
 		return nil, os.ErrInvalid
 	}
@@ -225,6 +264,11 @@ func (f *FakeFile) Readdir(n int) ([]os.FileInfo, error) {
 }
 
 func (f *FakeFile) Readdirnames(n int) (names []string, err error) {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	di, err := f.ReadDir(n)
 	out := make([]string, len(di))
 	for i := range di {
@@ -262,6 +306,11 @@ type fileWithoutReadFrom struct {
 }
 
 func (f *FakeFile) Seek(offset int64, whence int) (ret int64, err error) {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	if f.data == nil {
 		return 0, os.ErrInvalid
 	}
@@ -284,6 +333,11 @@ func (f *FakeFile) Seek(offset int64, whence int) (ret int64, err error) {
 }
 
 func (f *FakeFile) Stat() (os.FileInfo, error) {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	if f.data == nil {
 		return nil, os.ErrInvalid
 	}
@@ -293,14 +347,24 @@ func (f *FakeFile) Stat() (os.FileInfo, error) {
 }
 
 func (f *FakeFile) Sync() error {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	if f.data == nil {
 		return os.ErrInvalid
 	}
-	f.data.dyrtyPages = f.data.dyrtyPages[:0]
+	f.data.dirtyPages = f.data.dirtyPages[:0]
 	return nil
 }
 
 func (f *FakeFile) Truncate(size int64) error {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	if f.data == nil {
 		return os.ErrInvalid
 	}
@@ -316,6 +380,11 @@ func (f *FakeFile) Truncate(size int64) error {
 }
 
 func (f *FakeFile) Write(b []byte) (n int, err error) {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	if f.data == nil {
 		return 0, os.ErrInvalid
 	}
@@ -330,6 +399,11 @@ func (f *FakeFile) Write(b []byte) (n int, err error) {
 }
 
 func (f *FakeFile) WriteAt(b []byte, off int64) (n int, err error) {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+
 	if off < 0 {
 		return 0, fmt.Errorf("negative offset")
 	}
@@ -382,7 +456,7 @@ func (f *FakeFile) appendDirtyPage(from int64, to int64) {
 	}
 
 	// TODO: want to add some optimization to less allocation (e.g. for situation then we write sequentially)
-	f.data.dyrtyPages = append(f.data.dyrtyPages, interval{from: from, to: to})
+	f.data.dirtyPages = append(f.data.dirtyPages, interval{from: from, to: to})
 }
 
 func (f *FakeFile) WriteString(s string) (n int, err error) {
@@ -426,7 +500,7 @@ type infoData struct {
 var _ os.FileInfo = &infoData{}
 var _ os.DirEntry = &infoData{}
 
-func NewInfoDataFromNode(inode *mockData, name string) *infoData {
+func NewInfoDataFromNode(inode *memData, name string) *infoData {
 	// TODO: think how we can use sync.Pool here
 	var info infoData
 	info.name = filepath.Base(name)
