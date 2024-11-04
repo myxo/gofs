@@ -1,8 +1,8 @@
 package memory
 
 import (
+	"crypto/rand"
 	"io"
-	"math/rand"
 	"os"
 	"strconv"
 	"testing"
