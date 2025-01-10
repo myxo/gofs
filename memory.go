@@ -51,6 +51,9 @@ type memData struct {
 	parent      *memData
 	perm        os.FileMode
 	dirtyPages  []interval // well... it's not exactly pages...
+
+	mu             sync.Mutex
+	threadSafeMode bool
 }
 
 func (m *memData) reset() {
@@ -82,18 +85,16 @@ type FakeFile struct {
 	cursor        int64
 	readDirSlice  []os.DirEntry // non empty only on directory iteration with ReadDir function
 	readDirSlice2 []os.FileInfo // non empty only on directory iteration with ReadDir function
-
-	mu             sync.Mutex
-	threadSafeMode bool
+	valid         bool
 }
 
 func (f *FakeFile) Chdir() error {
-	if f.threadSafeMode {
-		f.mu.Lock()
-		defer f.mu.Unlock()
+	if f.data.threadSafeMode {
+		f.data.mu.Lock()
+		defer f.data.mu.Unlock()
 	}
 
-	if f.data == nil {
+	if !f.valid {
 		return os.ErrInvalid
 	}
 	if !f.data.isDirectory {
@@ -103,12 +104,12 @@ func (f *FakeFile) Chdir() error {
 }
 
 func (f *FakeFile) Chmod(mode os.FileMode) error {
-	if f.threadSafeMode {
-		f.mu.Lock()
-		defer f.mu.Unlock()
+	if f.data.threadSafeMode {
+		f.data.mu.Lock()
+		defer f.data.mu.Unlock()
 	}
 
-	if f.data == nil {
+	if !f.valid {
 		return os.ErrInvalid
 	}
 	f.data.perm = mode & fs.ModePerm
@@ -118,34 +119,34 @@ func (f *FakeFile) Chmod(mode os.FileMode) error {
 func (f *FakeFile) Chown(uid, gid int) error { panic("todo") }
 
 func (f *FakeFile) Close() error {
-	if f.threadSafeMode {
-		f.mu.Lock()
-		defer f.mu.Unlock()
+	if f.data.threadSafeMode {
+		f.data.mu.Lock()
+		defer f.data.mu.Unlock()
 	}
 
-	if f.data == nil {
+	if !f.valid {
 		return os.ErrInvalid
 	}
 	// cannot reset all variables, since go implementation does not do it
-	f.data = nil
+	f.valid = false
 	clear(f.readDirSlice)
 	clear(f.readDirSlice2)
 	return nil
 }
 
 func (f *FakeFile) Name() string {
-	if f.threadSafeMode {
-		f.mu.Lock()
-		defer f.mu.Unlock()
+	if f.data.threadSafeMode {
+		f.data.mu.Lock()
+		defer f.data.mu.Unlock()
 	}
 
 	return f.name
 }
 
 func (f *FakeFile) Read(b []byte) (n int, err error) {
-	if f.threadSafeMode {
-		f.mu.Lock()
-		defer f.mu.Unlock()
+	if f.data.threadSafeMode {
+		f.data.mu.Lock()
+		defer f.data.mu.Unlock()
 	}
 
 	n, err = f.pread(b, f.cursor)
@@ -154,9 +155,9 @@ func (f *FakeFile) Read(b []byte) (n int, err error) {
 }
 
 func (f *FakeFile) ReadAt(b []byte, off int64) (n int, err error) {
-	if f.threadSafeMode {
-		f.mu.Lock()
-		defer f.mu.Unlock()
+	if f.data.threadSafeMode {
+		f.data.mu.Lock()
+		defer f.data.mu.Unlock()
 	}
 
 	if off < 0 {
@@ -177,7 +178,7 @@ func (f *FakeFile) ReadAt(b []byte, off int64) (n int, err error) {
 }
 
 func (f *FakeFile) pread(b []byte, off int64) (n int, err error) {
-	if f.data == nil {
+	if !f.valid {
 		return 0, os.ErrInvalid
 	}
 	if off < 0 {
@@ -200,12 +201,12 @@ func (f *FakeFile) pread(b []byte, off int64) (n int, err error) {
 }
 
 func (f *FakeFile) ReadDir(n int) ([]os.DirEntry, error) {
-	if f.threadSafeMode {
-		f.mu.Lock()
-		defer f.mu.Unlock()
+	if f.data.threadSafeMode {
+		f.data.mu.Lock()
+		defer f.data.mu.Unlock()
 	}
 
-	if f.data == nil {
+	if !f.valid {
 		return nil, os.ErrInvalid
 	}
 	if !f.data.isDirectory {
@@ -232,12 +233,12 @@ func (f *FakeFile) ReadDir(n int) ([]os.DirEntry, error) {
 }
 
 func (f *FakeFile) Readdir(n int) ([]os.FileInfo, error) {
-	if f.threadSafeMode {
-		f.mu.Lock()
-		defer f.mu.Unlock()
+	if f.data.threadSafeMode {
+		f.data.mu.Lock()
+		defer f.data.mu.Unlock()
 	}
 
-	if f.data == nil {
+	if !f.valid {
 		return nil, os.ErrInvalid
 	}
 	if !f.data.isDirectory {
@@ -264,9 +265,9 @@ func (f *FakeFile) Readdir(n int) ([]os.FileInfo, error) {
 }
 
 func (f *FakeFile) Readdirnames(n int) (names []string, err error) {
-	if f.threadSafeMode {
-		f.mu.Lock()
-		defer f.mu.Unlock()
+	if f.data.threadSafeMode {
+		f.data.mu.Lock()
+		defer f.data.mu.Unlock()
 	}
 
 	di, err := f.ReadDir(n)
@@ -306,12 +307,12 @@ type fileWithoutReadFrom struct {
 }
 
 func (f *FakeFile) Seek(offset int64, whence int) (ret int64, err error) {
-	if f.threadSafeMode {
-		f.mu.Lock()
-		defer f.mu.Unlock()
+	if f.data.threadSafeMode {
+		f.data.mu.Lock()
+		defer f.data.mu.Unlock()
 	}
 
-	if f.data == nil {
+	if !f.valid {
 		return 0, os.ErrInvalid
 	}
 	newOffset := int64(0)
@@ -333,12 +334,12 @@ func (f *FakeFile) Seek(offset int64, whence int) (ret int64, err error) {
 }
 
 func (f *FakeFile) Stat() (os.FileInfo, error) {
-	if f.threadSafeMode {
-		f.mu.Lock()
-		defer f.mu.Unlock()
+	if f.data.threadSafeMode {
+		f.data.mu.Lock()
+		defer f.data.mu.Unlock()
 	}
 
-	if f.data == nil {
+	if !f.valid {
 		return nil, os.ErrInvalid
 	}
 	// TODO: check read persmissions?
@@ -347,12 +348,12 @@ func (f *FakeFile) Stat() (os.FileInfo, error) {
 }
 
 func (f *FakeFile) Sync() error {
-	if f.threadSafeMode {
-		f.mu.Lock()
-		defer f.mu.Unlock()
+	if f.data.threadSafeMode {
+		f.data.mu.Lock()
+		defer f.data.mu.Unlock()
 	}
 
-	if f.data == nil {
+	if !f.valid {
 		return os.ErrInvalid
 	}
 	f.data.dirtyPages = f.data.dirtyPages[:0]
@@ -360,12 +361,12 @@ func (f *FakeFile) Sync() error {
 }
 
 func (f *FakeFile) Truncate(size int64) error {
-	if f.threadSafeMode {
-		f.mu.Lock()
-		defer f.mu.Unlock()
+	if f.data.threadSafeMode {
+		f.data.mu.Lock()
+		defer f.data.mu.Unlock()
 	}
 
-	if f.data == nil {
+	if !f.valid {
 		return os.ErrInvalid
 	}
 	if size < 0 {
@@ -380,12 +381,12 @@ func (f *FakeFile) Truncate(size int64) error {
 }
 
 func (f *FakeFile) Write(b []byte) (n int, err error) {
-	if f.threadSafeMode {
-		f.mu.Lock()
-		defer f.mu.Unlock()
+	if f.data.threadSafeMode {
+		f.data.mu.Lock()
+		defer f.data.mu.Unlock()
 	}
 
-	if f.data == nil {
+	if !f.valid {
 		return 0, os.ErrInvalid
 	}
 	writePos := f.cursor
@@ -399,9 +400,9 @@ func (f *FakeFile) Write(b []byte) (n int, err error) {
 }
 
 func (f *FakeFile) WriteAt(b []byte, off int64) (n int, err error) {
-	if f.threadSafeMode {
-		f.mu.Lock()
-		defer f.mu.Unlock()
+	if f.data.threadSafeMode {
+		f.data.mu.Lock()
+		defer f.data.mu.Unlock()
 	}
 
 	if off < 0 {
@@ -426,7 +427,7 @@ func (f *FakeFile) WriteAt(b []byte, off int64) (n int, err error) {
 }
 
 func (f *FakeFile) pwrite(b []byte, off int64) (n int, err error) {
-	if f.data == nil {
+	if !f.valid {
 		return 0, os.ErrInvalid
 	}
 	if off < 0 {
