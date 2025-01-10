@@ -153,6 +153,7 @@ func (f *InMemoryFS) OpenFile(name string, flag int, perm os.FileMode) (*File, e
 		inode.perm = perm
 		inode.fs = f
 		inode.parent = dir
+		inode.threadSafeMode = f.threadSafeMode
 		if !util.IsCreate(flag) { // read and write allowed with any perm if you just created the file
 			if err := checkOpenPerm(flag, inode); err != nil {
 				return nil, MakeWrappedError("OpenFile", name, os.ErrNotExist)
@@ -177,10 +178,10 @@ func (f *InMemoryFS) OpenFile(name string, flag int, perm os.FileMode) (*File, e
 
 	return &File{
 		mockFile: &FakeFile{
-			name:           name,
-			data:           inode,
-			flag:           flag,
-			threadSafeMode: f.threadSafeMode,
+			name:  name,
+			data:  inode,
+			flag:  flag,
+			valid: true,
 		},
 	}, nil
 }
