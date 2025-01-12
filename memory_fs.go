@@ -197,6 +197,10 @@ func (f *InMemoryFS) Chdir(dir string) error {
 	if !ok {
 		return MakeWrappedError("Chdir", dir, os.ErrNotExist)
 	}
+	if inode.threadSafeMode {
+		inode.mu.Lock()
+		defer inode.mu.Unlock()
+	}
 	if !inode.isDirectory {
 		return MakeError("Chdir", dir, "not an directory")
 	}
@@ -215,6 +219,10 @@ func (f *InMemoryFS) Chmod(name string, mode os.FileMode) error {
 	inode, ok := f.inodes[name]
 	if !ok {
 		return MakeWrappedError("Chmod", name, os.ErrNotExist)
+	}
+	if inode.threadSafeMode {
+		inode.mu.Lock()
+		defer inode.mu.Unlock()
 	}
 	inode.perm = mode & fs.ModePerm
 	return nil
@@ -383,7 +391,7 @@ func (f *InMemoryFS) remove(name string, all bool) error {
 		return MakeWrappedError("Remove", name, os.ErrNotExist)
 	}
 	if inode.isDirectory {
-		content, err := f.getDirContent(name)
+		content, err := f.getDirContentUnsafe(name)
 		_ = err // TODO
 		if all {
 			for _, dinode := range content {
@@ -427,6 +435,10 @@ func (f *InMemoryFS) Rename(oldpath, newpath string) error {
 
 	delete(f.inodes, oldpath)
 	f.inodes[newpath] = inode
+	if inode.threadSafeMode {
+		inode.mu.Lock()
+		defer inode.mu.Unlock()
+	}
 	inode.realName = newpath
 	inode.parent = targetDirNode
 	return nil
@@ -442,6 +454,11 @@ func (f *InMemoryFS) Truncate(name string, size int64) error {
 	inode, ok := f.inodes[name]
 	if !ok {
 		return MakeWrappedError("Truncate", name, os.ErrNotExist)
+	}
+	// TODO: code duplication with FakeFile
+	if inode.threadSafeMode {
+		inode.mu.Lock()
+		defer inode.mu.Unlock()
 	}
 	if !inode.hasWritePerm() {
 		return MakeWrappedError("Truncate", name, os.ErrPermission)
@@ -532,6 +549,14 @@ func (f *InMemoryFS) CorruptDirtyPages(seedRand *rand.Rand) {
 }
 
 func (f *InMemoryFS) getDirContent(path string) ([]*memData, error) {
+	if f.threadSafeMode {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+	}
+	return f.getDirContentUnsafe(path)
+}
+
+func (f *InMemoryFS) getDirContentUnsafe(path string) ([]*memData, error) {
 	if path == "." {
 		path = f.workDir
 	}
