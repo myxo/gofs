@@ -216,7 +216,13 @@ func (f *FakeFile) ReadDir(n int) ([]os.DirEntry, error) {
 		content, err := f.data.fs.getDirContent(f.name)
 		_ = err // TODO
 		for i := range content {
+			if content[i].threadSafeMode {
+				content[i].mu.Lock()
+			}
 			f.readDirSlice = append(f.readDirSlice, NewInfoDataFromNode(content[i], content[i].realName))
+			if content[i].threadSafeMode {
+				content[i].mu.Unlock()
+			}
 		}
 	}
 	if n > 0 {
@@ -248,7 +254,13 @@ func (f *FakeFile) Readdir(n int) ([]os.FileInfo, error) {
 		content, err := f.data.fs.getDirContent(f.name)
 		_ = err // TODO
 		for i := range content {
+			if content[i].threadSafeMode {
+				content[i].mu.Lock()
+			}
 			f.readDirSlice2 = append(f.readDirSlice2, NewInfoDataFromNode(content[i], content[i].realName))
+			if content[i].threadSafeMode {
+				content[i].mu.Unlock()
+			}
 		}
 	}
 	if n > 0 {
